@@ -1,0 +1,35 @@
+[hidden] { display: none !important; }
+.cloud-locked > .app-container, .cloud-locked > .luna-miniplayer, .cloud-locked > .modal-backdrop { display: none !important; }
+.cloud-auth { width: min(430px, calc(100% - 32px)); margin: 8vh auto 24px; padding: 28px; position: relative; }
+.cloud-auth img { display: block; width: 72px; height: 72px; object-fit: contain; margin: 0 auto 14px; }
+.cloud-auth h1, .cloud-auth h2 { font-family: 'Quicksand', sans-serif; text-align: center; color: #BE185D; }
+.cloud-auth p { line-height: 1.6; margin: 14px 0; color: var(--text-muted); }
+.cloud-auth form { display: grid; gap: 10px; }
+.cloud-auth input { width: 100%; border-radius: 12px; padding: 12px; border: 1px solid #F0ABCF; background: #FFF1F7; color: #831843; font: inherit; }
+.cloud-auth button, .cloud-bar button, .cloud-notice button { padding: 10px 14px; border-radius: 12px; border: 1px solid #F0ABCF; background: #FCE7F3; color: #831843; font: inherit; cursor: pointer; }
+.cloud-auth button[type=submit] { background: #DB2777; color: #FFF; border-color: #DB2777; font-weight: 700; }
+.cloud-auth button:disabled { opacity: .55; cursor: default; }
+.cloud-bar { position: relative; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; max-width: 1600px; margin: 10px auto; padding: 0 20px; font-size: 12px; }
+.cloud-bar button { padding: 7px 10px; }
+.cloud-notice { margin: 8px 20px; padding: 12px; background: #FFF3B8; border-radius: 12px; color: #713F12; }
+.cloud-lock { position: fixed; inset: 0; z-index: 2147483000; background: #2D1B28CC; display: grid; place-items: center; overflow: auto; }
+.cloud-lock .cloud-auth { background: var(--bg-cream); margin: 20px auto; }
+body.dark-theme .cloud-auth input, body.dark-theme .cloud-bar button, body.dark-theme .cloud-auth button { background: #3B2032; color: #FCE7F3; }
+@media(max-width: 700px) {
+  .app-container { padding: 10px; min-width: 0; }
+  .app-header, .header-left, .header-actions, .daily-date-picker { flex-wrap: wrap; min-width: 0; }
+  .view-nav-tabs { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; }
+  .view-nav-tabs .view-tab { flex: 0 0 auto; }
+  .workspace-grid { grid-template-columns: minmax(0, 1fr); }
+  .views-Stage, .view-section, .section-card, .card-title-group { min-width: 0; max-width: 100%; }
+  .card-header { flex-wrap: wrap; gap: 10px; }
+  .card-title-group h2 { white-space: normal; overflow-wrap: anywhere; font-size: 14px; }
+  .planilha-top-row, .planilha-bottom-row, .cards-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .table-wrapper { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-wrapper table { min-width: 650px; }
+  .dashboard-grid, .invest-charts-row, .yield-summary-cards { grid-template-columns: 1fr !important; }
+  .kpi-strip { flex-wrap: wrap; }
+  .cloud-bar { justify-content: flex-start; padding: 0 10px; }
+  #cloudAccount { max-width: 100%; overflow-wrap: anywhere; }
+  .luna-miniplayer { max-width: calc(100vw - 20px); }
+}

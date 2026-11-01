@@ -1,0 +1,11 @@
+{
+  "name": "Magic — Finanças",
+  "short_name": "Magic",
+  "lang": "pt-BR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FFF8FB",
+  "theme_color": "#DB2777",
+  "icons": [{ "src": "logo-magic.png", "sizes": "any", "type": "image/png", "purpose": "any" }]
+}

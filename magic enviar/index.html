@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>magic ✨ — Finanças, Cartões, Investimentos & Sailor IA</title>
+  <link rel="icon" type="image/png" href="logo-magic.png?v=5" />
+  <!-- Google Fonts: Plus Jakarta Sans & Quicksand -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Quicksand:wght@600;700&display=swap" rel="stylesheet">
+  <!-- Chart.js + DataLabels plugin -->
+  <script src="vendor/chart.js"></script>
+  <script src="vendor/chartjs-plugin-datalabels.js"></script>
+  <!-- Lucide Icons -->
+  <script src="vendor/lucide.js"></script>
+  <link rel="stylesheet" href="styles.css?v=dark_replenish_btn_v29" />
+  <link rel="stylesheet" href="cloud.css" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#DB2777" />
+  <link rel="apple-touch-icon" href="logo-magic.png" />
+</head>
+<body class="cloud-locked">
+  <div id="cloudBar" class="cloud-bar" hidden><span id="cloudAccount"></span><strong id="cloudStatus"></strong><button type="button" id="cloudRetry">Sincronizar</button><button type="button" id="cloudBackup">Baixar backup</button><button type="button" id="cloudLogout">Sair</button></div>
+  <div id="cloudNotice" class="cloud-notice" role="status" hidden></div>
+  <section id="cloudLogin" class="cloud-auth card-pastel" aria-labelledby="cloudTitle">
+    <img src="logo-magic.png" alt="" /><h1 id="cloudTitle">Seu Magic, em qualquer lugar ✨</h1>
+    <p>Entre para acessar seus cartões, investimentos e histórico.</p>
+    <form id="cloudLoginForm"><label for="cloudEmail">E-mail</label><input id="cloudEmail" type="email" autocomplete="username" required />
+    <label for="cloudPassword">Senha</label><input id="cloudPassword" type="password" autocomplete="current-password" required />
+    <button id="cloudSubmit" type="submit" disabled>Entrar</button></form>
+    <button id="cloudSignup" type="button" disabled>Primeiro acesso? Criar minha conta</button>
+    <p id="cloudAuthMessage" role="status">Conectando…</p>
+  </section>
+  <section id="cloudWelcome" class="cloud-auth card-pastel" hidden><h2>Bem-vinda ao seu Magic ✨</h2>
+    <p>Importe o backup completo da versão local. Seus registros serão preservados nesta conta.</p>
+    <label for="cloudImport">Selecionar backup JSON</label><input type="file" id="cloudImport" accept=".json,application/json" />
+    <p id="cloudImportMessage" role="status"></p><button id="cloudStartEmpty" type="button">Começar com dados vazios</button>
+  </section>
+  <div id="cloudLock" class="cloud-lock" role="dialog" aria-modal="true" aria-labelledby="cloudLockTitle" hidden><section class="cloud-auth card-pastel">
+    <h2 id="cloudLockTitle">Sua alteração está preservada</h2><p id="cloudLockMessage"></p>
+    <button id="cloudRecovery" type="button">Baixar minha cópia local</button>
+    <button id="cloudLoadOnline" type="button" disabled>Depois do backup, carregar versão online</button>
+  </section></div>
+
+  <div class="bg-blobs">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+  </div>
+
+  <div class="app-container">
+    <!-- Top Header -->
+    <header class="app-header card-pastel">
+      <div class="header-left">
+        <div class="magic-brand-wrapper">
+          <button type="button" id="btnOpenLunaLogo" class="fairy-logo-btn" title="Conversar com a Sailor ✨" aria-label="Abrir Sailor">
+            <img src="logo-magic.png?v=5" alt="magic fadinha" class="fairy-logo-img" />
+          </button>
+          <img src="nome-magic.png?v=6" alt="magic" class="magic-script-img" />
+        </div>
+        <div class="header-divider"></div>
+        <div class="header-period-nav">
+          <h1 id="currentMonthTitle" style="display:none;">OUTUBRO 2026</h1>
+          <div class="month-selector-wrap">
+            <div class="year-tabs" id="yearTabs" aria-label="Selecionar ano">
+              <button type="button" class="year-tab active" data-year="2026" onclick="selectYear('2026')">2026</button>
+              <button type="button" class="year-tab" data-year="2027" onclick="selectYear('2027')">2027</button>
+              <button type="button" class="year-tab-add" id="btnAddYear" onclick="addNewYearTab()" title="Adicionar próximo ano">+</button>
+            </div>
+            <div class="month-tabs-box">
+              <div class="month-tabs" id="monthTabs" title="Arraste para o lado para ver mais meses">
+                <button type="button" class="month-tab active" data-month="OUTUBRO" onclick="setMonth('OUTUBRO')">Outubro</button>
+                <button type="button" class="month-tab" data-month="NOVEMBRO" onclick="setMonth('NOVEMBRO')">Novembro</button>
+                <button type="button" class="month-tab" data-month="DEZEMBRO" onclick="setMonth('DEZEMBRO')">Dezembro</button>
+              </div>
+              <input type="range" id="monthScrollSlider" class="month-scroll-slider" min="0" max="100" value="0" step="1" title="Arraste a barrinha para ver todos os meses" aria-label="Arrastar meses" style="display:none;" />
+            </div>
+            <select id="monthSelect" class="pastel-select" aria-label="Selecionar mês" style="display:none;">
+              <option value="OUTUBRO" selected>OUTUBRO 2026</option>
+              <option value="NOVEMBRO">NOVEMBRO 2026</option>
+              <option value="DEZEMBRO">DEZEMBRO 2026</option>
+              <option value="JANEIRO">JANEIRO 2027</option>
+              <option value="FEVEREIRO">FEVEREIRO 2027</option>
+              <option value="MARÇO">MARÇO 2027</option>
+              <option value="ABRIL">ABRIL 2027</option>
+              <option value="MAIO">MAIO 2027</option>
+              <option value="JUNHO">JUNHO 2027</option>
+              <option value="JULHO">JULHO 2027</option>
+              <option value="AGOSTO">AGOSTO 2027</option>
+              <option value="SETEMBRO">SETEMBRO 2027</option>
+              <option value="OUTUBRO 2027">OUTUBRO 2027</option>
+              <option value="NOVEMBRO 2027">NOVEMBRO 2027</option>
+              <option value="DEZEMBRO 2027">DEZEMBRO 2027</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Navigation Tabs (Planilha Mensal | Cartões de Crédito | Investimentos & Rendimentos) -->
+      <nav class="view-nav-tabs" aria-label="Navegação Principal">
+        <button type="button" class="view-tab active" data-view="planilha">
+          <i data-lucide="table-2"></i>
+          <span>Planilha do Mês</span>
+        </button>
+        <button type="button" class="view-tab" data-view="cartoes">
+          <i data-lucide="credit-card"></i>
+          <span>Cartões (MP & Nubank)</span>
+        </button>
+        <button type="button" class="view-tab" data-view="investimentos">
+          <i data-lucide="trending-up"></i>
+          <span>Investimentos & Rendimentos</span>
+        </button>
+      </nav>
+
+      <div class="header-actions">
+        <button type="button" id="btnThemeToggle" class="theme-toggle-btn" onclick="toggleDarkTheme()" title="Alternar tema escuro / claro" aria-label="Alternar tema">
+          <i data-lucide="moon" id="themeToggleIcon"></i>
+        </button>
+        <span id="saveStatusBadge" class="save-status-badge" title="Salvo automaticamente">
+          <i data-lucide="hard-drive-download"></i>
+          <span id="saveStatusText" style="display:none;"></span>
+        </span>
+      </div>
+    </header>
+
+    <!-- KPI Strip -->
+    <div class="kpi-strip">
+      <div class="kpi-pill kpi-income">
+        <span class="kpi-label">Entradas (<span class="lbl-cur-month">OUTUBRO</span>)</span>
+        <strong id="kpiTotalEntradas">R$ 0,00</strong>
+      </div>
+      <div class="kpi-pill kpi-expense">
+        <span class="kpi-label">Saídas (<span class="lbl-cur-month">OUTUBRO</span>)</span>
+        <strong id="kpiTotalGastos">R$ 0,00</strong>
+      </div>
+      <div class="kpi-pill kpi-balance">
+        <span class="kpi-label">Fluxo do Mês / Uso Inv.</span>
+        <strong id="kpiSaldoMes">R$ 0,00</strong>
+      </div>
+      <div class="kpi-pill kpi-invest">
+        <span class="kpi-label">Patrimônio Investido</span>
+        <strong id="kpiTotalInvestido">R$ 0,00</strong>
+      </div>
+      <div class="kpi-pill kpi-yield">
+        <span class="kpi-label">Rendimento Acumulado (Mês)</span>
+        <strong id="kpiRendimentoMes">R$ 0,00</strong>
+      </div>
+    </div>
+
+    <!-- Layout Principal: Conteúdo da Aba Ativa (Esquerda/Centro) + IA Financeira Sempre Visível (Direita) -->
+    <div class="workspace-grid">
+      <div class="views-Stage">
+
+        <!-- =================================================================== -->
+        <!-- ABA 1: PLANILHA MENSAL (Entradas, Saídas, Tabela Dinâmica, Resumo) -->
+        <!-- =================================================================== -->
+        <div id="view-planilha" class="view-section active">
+          <!-- Linha Superior: Entradas (Esquerda) + Saídas (Direita) -->
+          <div class="planilha-top-row">
+            <!-- Entradas Card -->
+            <div class="card-pastel section-card planilha-entradas-card" id="cardEntradasPlanilha">
+              <div class="card-header header-mint">
+                <div class="card-title-group">
+                  <i data-lucide="arrow-down-left"></i>
+                  <h2>Entradas</h2>
+                </div>
+                <button class="btn-icon-add" id="btnAddEntrada">
+                  <i data-lucide="plus"></i> Adicionar
+                </button>
+              </div>
+
+              <div class="table-wrapper entradas-scroll" id="entradasScrollBox">
+                <table class="pastel-table" id="tableEntradas">
+                  <thead>
+                    <tr>
+                      <th>Referência</th>
+                      <th class="text-right">Valor</th>
+                      <th class="col-actions"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyEntradas"></tbody>
+                </table>
+              </div>
+
+              <div class="entradas-total-fixed">
+                <strong>total</strong>
+                <strong id="totalEntradasFooter">R$ 0,00</strong>
+              </div>
+            </div>
+
+            <!-- Saídas Card -->
+            <div class="card-pastel section-card planilha-saidas-card" id="cardSaidasPlanilha">
+              <div class="card-header header-peach">
+                <div class="card-title-group">
+                  <i data-lucide="receipt"></i>
+                  <h2>Saída (Gastos do Mês)</h2>
+                </div>
+                <div class="saida-controls">
+                  <select id="filterCategoria" class="pastel-filter-select">
+                    <option value="all">Todas categorias</option>
+                    <option value="uber">uber</option>
+                    <option value="fatura">fatura</option>
+                    <option value="contas">contas</option>
+                    <option value="parcelado">parcelado</option>
+                    <option value="compras">compras</option>
+                  </select>
+                  <button class="btn-icon-add" id="btnAddSaida">
+                    <i data-lucide="plus"></i> Novo Gasto
+                  </button>
+                </div>
+              </div>
+
+              <div class="table-wrapper saidas-scroll">
+                <table class="pastel-table" id="tableSaidas">
+                  <thead>
+                    <tr>
+                      <th class="text-center">data pagamento</th>
+                      <th>referência</th>
+                      <th>título</th>
+                      <th class="text-right">valor</th>
+                      <th class="col-actions"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodySaidas"></tbody>
+                </table>
+              </div>
+
+              <!-- Fechamento inferior -->
+              <div class="summary-footer-grid">
+                <div class="summary-box box-neutral">
+                  <span class="summary-label">todos os gastos</span>
+                  <strong class="summary-val" id="sumTodosOsGastos">R$ 0,00</strong>
+                </div>
+
+                <div class="summary-box box-faturas">
+                  <span class="summary-label">faturas crédito</span>
+                  <strong class="summary-val" id="sumFaturasCredito">R$ 0,00</strong>
+                </div>
+
+                <div class="summary-box box-adjust">
+                  <span class="summary-label" id="lblSumFluxoMes">fluxo do mês (uso inv.)</span>
+                  <strong class="summary-val" id="sumFluxoInvestimento">R$ 0,00</strong>
+                </div>
+
+                <div class="summary-box box-adjust" id="boxFaltaReporSummary">
+                  <span class="summary-label">falta repor pro inv. (acumulado)</span>
+                  <strong class="summary-val" id="sumFaltaReporTotal">R$ 0,00</strong>
+                </div>
+
+                <div class="summary-box box-sobra">
+                  <span class="summary-label" id="lblSumSobraDestino">devolvido p/ repor inv.</span>
+                  <strong class="summary-val" id="sumDevolvidoInv">R$ 0,00</strong>
+                </div>
+
+                <div class="summary-box box-sobra">
+                  <span class="summary-label">novo investimento (após repor)</span>
+                  <strong class="summary-val" id="sumSobra">R$ 0,00</strong>
+                </div>
+
+                <div class="summary-box box-patrimonio">
+                  <div class="patrimonio-header">
+                    <span class="summary-label">investimento total (após fluxo e reposição)</span>
+                    <span class="summary-hint">ⓘ</span>
+                  </div>
+                  <strong class="summary-val" id="sumInvestimentoFinal">R$ 0,00</strong>
+                  <small class="summary-sub" id="sumInvestimentoPlanilhaRef">Clique para ajustar</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Linha Inferior: Investimentos (Esquerda) + Tabela Dinâmica (Direita) do mesmo tamanho -->
+          <div class="planilha-bottom-row">
+            <!-- Resumo Rápido de Investimentos na Planilha -->
+            <div class="card-pastel section-card planilha-invest-card" id="cardInvestimentosPlanilha">
+              <div class="card-header header-lavender">
+                <div class="card-title-group">
+                  <i data-lucide="piggy-bank"></i>
+                  <h2>Investimentos</h2>
+                </div>
+              </div>
+
+              <div class="table-wrapper investimentos-scroll">
+                <table class="pastel-table" id="tableInvestimentos">
+                  <thead>
+                    <tr>
+                      <th>Instituição / Caixinha</th>
+                      <th class="text-right">Valor Atual</th>
+                      <th class="text-right">%</th>
+                      <th class="col-actions"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyInvestimentos"></tbody>
+                </table>
+              </div>
+
+              <table class="pastel-table invest-footer-fixed-table">
+                <tfoot>
+                  <tr class="row-total total-mint">
+                    <td><strong>total nas caixinhas</strong></td>
+                    <td class="text-right"><strong id="totalInvestimentosFooter">R$ 0,00</strong></td>
+                    <td class="text-right" style="width:58px;"><strong>100%</strong></td>
+                    <td style="width:32px;"></td>
+                  </tr>
+                  <tr class="row-deficit-deduction" id="rowDeficitInvestimento">
+                    <td><span id="labelDeficitInvestimento">🔻 Retirada p/ cobrir mês negativo</span></td>
+                    <td class="text-right" colspan="3"><strong id="valDeficitInvestimento">R$ 0,00</strong></td>
+                  </tr>
+                  <tr class="row-total total-net-invest" id="rowNetInvestimento">
+                    <td><strong>investimento líquido (após mês)</strong></td>
+                    <td class="text-right" colspan="3"><strong id="valNetInvestimento">R$ 0,00</strong></td>
+                  </tr>
+                </tfoot>
+              </table>
+
+              <!-- Painel Automático de Reposição do Investimento -->
+              <div class="replenish-tracker-box" id="replenishTrackerBox">
+                <div class="replenish-title">
+                  <i data-lucide="refresh-cw"></i>
+                  <span>Controle de Reposição do Investimento</span>
+                </div>
+                <div class="replenish-grid">
+                  <div class="rep-item rep-debt">
+                    <span>Falta Repor (Acumulado)</span>
+                    <strong id="repFaltaRepor">R$ 0,00</strong>
+                  </div>
+                  <div class="rep-item rep-returned">
+                    <span>Devolvido no Mês</span>
+                    <strong id="repDevolvidoMes">R$ 0,00</strong>
+                  </div>
+                  <div class="rep-item rep-new-invest">
+                    <span>Novo Aporte (Além da Reposição)</span>
+                    <strong id="repNovoAporte">R$ 0,00</strong>
+                  </div>
+                </div>
+                <div class="replenish-progress-wrap">
+                  <div class="rep-bar-labels">
+                    <span id="repStatusLabel">Total retirado até aqui: R$ 0,00</span>
+                    <span id="repPctLabel">0% reposto</span>
+                  </div>
+                  <div class="rep-bar-track">
+                    <div class="rep-bar-fill" id="repBarFill" style="width: 0%;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tabela Dinâmica -->
+            <div class="card-pastel section-card" id="cardDinamicaPlanilha">
+              <div class="card-header header-sky">
+                <div class="card-title-group">
+                  <i data-lucide="layers"></i>
+                  <h2>Tabela Dinâmica (Gastos por Título)</h2>
+                </div>
+              </div>
+
+              <p class="daily-helper-text">💳 Inclui as saídas do mês (com a "fatura" paga neste mês, referente ao cartão do mês anterior) + as compras feitas no cartão neste mês (Mercado Pago + Nubank), sem os gastos do Marcos.</p>
+
+              <div class="table-wrapper">
+                <table class="pastel-table" id="tableDinamica">
+                  <thead>
+                    <tr>
+                      <th>título</th>
+                      <th class="text-right">SUM de valor</th>
+                      <th class="text-right">%</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyDinamica"></tbody>
+                  <tfoot>
+                    <tr class="row-total total-sky">
+                      <td><strong>Total geral</strong></td>
+                      <td class="text-right"><strong id="totalDinamicaFooter">R$ 0,00</strong></td>
+                      <td class="text-right"><strong>100%</strong></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <div class="category-bars" id="categoryBars"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- =================================================================== -->
+        <!-- ABA 2: CARTÕES DE CRÉDITO (MERCADO PAGO & NUBANK + DIVISÃO MARCOS)  -->
+        <!-- =================================================================== -->
+        <div id="view-cartoes" class="view-section">
+          <!-- Banner explicativo da sincronização Mês Atual -> Mês Seguinte -->
+          <div class="card-pastel credit-sync-banner">
+            <div class="sync-banner-left">
+              <div class="sync-icon-wrap">
+                <i data-lucide="repeat"></i>
+              </div>
+              <div>
+                <h3>Compras no Cartão em <span id="lblCardSpendMonth">OUTUBRO</span> ➔ Pagamento na Fatura de <span id="lblCardPayMonth">NOVEMBRO</span></h3>
+                <p>
+                  Tudo o que você lançar abaixo atualiza automaticamente as faturas nas <strong>Saídas de <span class="lblCardPayMonthText">NOVEMBRO</span></strong>.
+                  Os itens marcados com a tag <strong>M (Marcos)</strong> são somados e adicionados automaticamente nas <strong>Entradas de <span class="lblCardPayMonthText">NOVEMBRO</span></strong>!
+                </p>
+              </div>
+            </div>
+            <div class="sync-banner-kpis">
+              <div class="mini-sync-box box-mp">
+                <span>Fatura Total (MP + Nubank)</span>
+                <strong id="cardBannerTotalFaturas">R$ 0,00</strong>
+                <small>Vai p/ Saídas de <span class="lblCardPayMonthText">NOVEMBRO</span></small>
+              </div>
+              <div class="mini-sync-box box-marcos">
+                <span id="cardBannerDebtorsTitle">Total a Cobrar (MP + Nubank)</span>
+                <strong id="cardBannerTotalMarcos">R$ 0,00</strong>
+                <small id="cardBannerDebtorsSub">Vai p/ Entradas de <span class="lblCardPayMonthText">NOVEMBRO</span></small>
+              </div>
+              <div class="mini-sync-box box-meu">
+                <span>Total Meu (Gasto Próprio)</span>
+                <strong id="cardBannerTotalMeu">R$ 0,00</strong>
+                <small>Sem parcelas anteriores</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- Barra de Filtros dos Cartões: Categorias e Divisão Marcos -->
+          <div class="card-pastel card-filters-banner">
+            <div class="card-filters-row">
+              <!-- Filtro de Categoria -->
+              <div class="filter-block">
+                <span class="filter-label"><i data-lucide="filter"></i> Categoria:</span>
+                <div class="filter-chips" id="chipsCardCategoria">
+                  <button type="button" class="chip-filter active" data-cat="all">Todas</button>
+                  <button type="button" class="chip-filter" data-cat="compras">compras</button>
+                  <button type="button" class="chip-filter" data-cat="contas">contas</button>
+                  <button type="button" class="chip-filter" data-cat="parcelado">parcelado</button>
+                  <button type="button" class="chip-filter" data-cat="uber">uber</button>
+                </div>
+                <select id="filterCardCategoria" class="pastel-filter-select" aria-label="Filtrar por Categoria nos Cartões" style="display:none;">
+                  <option value="all">Todas categorias</option>
+                  <option value="compras">compras</option>
+                  <option value="contas">contas</option>
+                  <option value="parcelado">parcelado</option>
+                  <option value="uber">uber</option>
+                </select>
+              </div>
+
+              <!-- Filtro do Marcos -->
+              <div class="filter-block">
+                <span class="filter-label"><i data-lucide="users"></i> Divisão:</span>
+                <div class="filter-chips" id="chipsCardMarcos">
+                  <button type="button" class="chip-filter active" data-marcos="all">Todos (Meu + Marcos)</button>
+                  <button type="button" class="chip-filter" data-marcos="meu">Apenas Meu</button>
+                  <button type="button" class="chip-filter" data-marcos="marcos">Apenas Marcos (M)</button>
+                </div>
+                <select id="filterCardMarcos" class="pastel-filter-select" aria-label="Filtrar por Marcos nos Cartões" style="display:none;">
+                  <option value="all">Todos (Meu + Marcos)</option>
+                  <option value="meu">Apenas Meu</option>
+                  <option value="marcos">Apenas Marcos</option>
+                </select>
+              </div>
+            </div>
+            <div id="cardFilterNotice" class="card-filter-notice" style="display:none;">
+              <span id="cardFilterNoticeText">Filtrando por: <strong>compras</strong></span>
+              <button type="button" class="btn-clear-filter" onclick="clearCardFilters()">Limpar filtros ✕</button>
+            </div>
+          </div>
+
+          <div class="cards-two-col">
+            <!-- Cartão 1: CRÉDITO MERCADO PAGO -->
+            <div class="card-pastel section-card">
+              <div class="card-header header-mp-yellow">
+                <div class="card-title-group">
+                  <i data-lucide="credit-card"></i>
+                  <h2>crédito MERCADO PAGO</h2>
+                </div>
+                <button class="btn-icon-add" onclick="openCardModal('mercadopago')">
+                  <i data-lucide="plus"></i> Novo Gasto MP
+                </button>
+              </div>
+
+              <div class="parcelas-anteriores-bar">
+                <span><strong>parcelas anteriores</strong> (fatura):</span>
+                <strong class="editable-cell" id="mpParcelasAnteriores" onclick="editParcelasAnteriores('mercadopago')" title="Clique para editar">R$ 0,00</strong>
+              </div>
+
+              <div class="table-wrapper saidas-scroll">
+                <table class="pastel-table">
+                  <thead>
+                    <tr>
+                      <th class="text-center">data</th>
+                      <th>referência</th>
+                      <th>título</th>
+                      <th class="text-center" title="Quem paga este gasto? (Meu ou cobrar de alguém)">Quem deve?</th>
+                      <th class="text-right">valor</th>
+                      <th class="col-actions"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyCardMP"></tbody>
+                </table>
+              </div>
+
+              <div class="card-invoice-footer">
+                <div class="invoice-row">
+                  <span>total gasto esse mês</span>
+                  <strong id="mpTotalMes">R$ 0,00</strong>
+                </div>
+                <div id="mpDebtorsFooterList">
+                  <div class="invoice-row row-marcos-highlight">
+                    <span>marcos (vai p/ entrada do mês seguinte)</span>
+                    <strong id="mpTotalMarcos">R$ 0,00</strong>
+                  </div>
+                </div>
+                <div class="invoice-row">
+                  <span>meu (gasto próprio)</span>
+                  <strong id="mpTotalMeu">R$ 0,00</strong>
+                </div>
+                <div class="invoice-row row-fatura-final">
+                  <span>Fatura Final (parcelas ant. + gasto mês)</span>
+                  <strong id="mpFaturaFinal">R$ 0,00</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- Cartão 2: CRÉDITO NUBANK -->
+            <div class="card-pastel section-card">
+              <div class="card-header header-nubank-purple">
+                <div class="card-title-group">
+                  <i data-lucide="credit-card"></i>
+                  <h2>crédito NUBANK</h2>
+                </div>
+                <button class="btn-icon-add" onclick="openCardModal('nubank')">
+                  <i data-lucide="plus"></i> Novo Gasto Nubank
+                </button>
+              </div>
+
+              <div class="parcelas-anteriores-bar">
+                <span><strong>parcelas anteriores</strong> (fatura):</span>
+                <strong class="editable-cell" id="nuParcelasAnteriores" onclick="editParcelasAnteriores('nubank')" title="Clique para editar">R$ 0,00</strong>
+              </div>
+
+              <div class="table-wrapper saidas-scroll">
+                <table class="pastel-table">
+                  <thead>
+                    <tr>
+                      <th class="text-center">data</th>
+                      <th>referência</th>
+                      <th>título</th>
+                      <th class="text-center" title="Quem paga este gasto? (Meu, Marcos ou outra pessoa)">Quem deve?</th>
+                      <th class="text-right">valor</th>
+                      <th class="col-actions"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyCardNubank"></tbody>
+                </table>
+              </div>
+
+              <div class="card-invoice-footer">
+                <div class="invoice-row">
+                  <span>total gasto esse mês</span>
+                  <strong id="nuTotalMes">R$ 0,00</strong>
+                </div>
+                <div id="nuDebtorsFooterList">
+                  <div class="invoice-row row-marcos-highlight">
+                    <span>marcos (vai p/ entrada do mês seguinte)</span>
+                    <strong id="nuTotalMarcos">R$ 0,00</strong>
+                  </div>
+                </div>
+                <div class="invoice-row">
+                  <span>meu (gasto próprio)</span>
+                  <strong id="nuTotalMeu">R$ 0,00</strong>
+                </div>
+                <div class="invoice-row row-fatura-final">
+                  <span>Fatura Final (parcelas ant. + gasto mês)</span>
+                  <strong id="nuFaturaFinal">R$ 0,00</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- =================================================================== -->
+        <!-- ABA 3: INVESTIMENTOS, ATUALIZAÇÃO DIÁRIA & GRÁFICO DE TRAJETÓRIA    -->
+        <!-- =================================================================== -->
+        <div id="view-investimentos" class="view-section">
+
+
+          <!-- Cards de Rendimento Consolidado (Hoje / Dia, Semana, Mês) -->
+          <div class="yield-summary-cards">
+            <div class="card-pastel yield-card yield-day">
+              <div class="yield-card-icon"><i data-lucide="sun"></i></div>
+              <div>
+                <span class="yield-label">Rendimento no Dia (Última Atualização)</span>
+                <strong class="yield-value" id="yieldTotalDia">R$ 0,00</strong>
+                <small id="yieldSubDia">Seus investimentos</small>
+              </div>
+            </div>
+
+            <div class="card-pastel yield-card yield-week">
+              <div class="yield-card-icon"><i data-lucide="calendar-days"></i></div>
+              <div>
+                <span class="yield-label">Rendimento na Semana Atual</span>
+                <strong class="yield-value" id="yieldTotalSemana">R$ 0,00</strong>
+                <small id="yieldSubSemana">Semana atual, de segunda a domingo</small>
+              </div>
+            </div>
+
+            <div class="card-pastel yield-card yield-month">
+              <div class="yield-card-icon"><i data-lucide="award"></i></div>
+              <div>
+                <span class="yield-label">Rendimento no Mês Atual</span>
+                <strong class="yield-value" id="yieldTotalMes">R$ 0,00</strong>
+                <small id="yieldSubMes">Acumulado no mês atual do calendário</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card de Controle de Reposição do que foi Tirado do Investimento (Mês a Mês) -->
+          <div class="card-pastel section-card daily-update-card">
+            <div class="card-header header-peach">
+              <div class="card-title-group">
+                <i data-lucide="refresh-cw"></i>
+                <h2>Controle de Reposição Automática dos Investimentos (Outubro 2026 a Dezembro 2027)</h2>
+              </div>
+              <span class="badge-auto">100% Automático</span>
+            </div>
+            <p class="daily-helper-text">🔄 Meses negativos acumulam valores a repor. Saldos positivos primeiro repõem o que foi retirado; o excedente passa a compor novos investimentos.</p>
+            <div class="table-wrapper">
+              <table class="pastel-table" id="tableReplenishTimeline">
+                <thead>
+                  <tr>
+                    <th>Mês</th>
+                    <th class="text-right">Resultado do Mês</th>
+                    <th class="text-right">Retirado no Mês</th>
+                    <th class="text-right">Devolvido p/ Repor</th>
+                    <th class="text-right">Ainda Falta Repor</th>
+                    <th class="text-right">Novo Investimento (Excedente)</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyReplenishTimeline"></tbody>
+              </table>
+            </div>
+            <div class="replenish-toggle-wrap">
+              <button type="button" class="btn-replenish-toggle" id="btnToggleReplenish" onclick="toggleReplenishView()">Visualizar mais ▼</button>
+            </div>
+          </div>
+
+          <!-- Painel de Atualização Diária ("Se ontem eu tinha 5000 e hoje tenho 5005 -> Rendeu R$ 0,00") -->
+          <div class="card-pastel section-card daily-update-card">
+            <div class="card-header header-mint">
+              <div class="card-title-group">
+                <i data-lucide="sparkles"></i>
+                <h2>Atualização Diária de Investimentos & Cálculo de Rendimento</h2>
+              </div>
+              <div class="daily-date-picker">
+                <button type="button" class="btn-icon-add" onclick="openInvestmentModal()">
+                  <i data-lucide="plus"></i> Novo Investimento
+                </button>
+                <label for="inputDailyDate">Data da atualização:</label>
+                <input type="date" id="inputDailyDate" class="pastel-date-input" />
+                <button type="button" class="btn-pastel btn-primary btn-sm" id="btnSaveAllDaily">
+                  <i data-lucide="check-circle-2"></i> Salvar Atualização de Hoje
+                </button>
+              </div>
+            </div>
+
+            <p class="daily-helper-text">
+              💡 <strong>Como atualizar:</strong> Se você colocou mais dinheiro (ex: <code>+100</code>) ou tirou/transferiu para outro banco (ex: <code>-20</code>), informe em <strong>"Coloquei / Tirei (R$)"</strong>. Esse valor <strong>não</strong> será confundido com rendimento! (Ex: tinha <strong>81,07</strong>, colocou <strong>100</strong> e o Valor Total ficou <strong>181,14</strong> ➔ o sistema identifica que rendeu <strong>R$ 0,00</strong>).
+            </p>
+
+            <div class="daily-yield-range" role="group" aria-label="Intervalo de rendimentos">
+              <strong>Rendimento por intervalo</strong>
+              <label for="yieldRangeStart">De</label>
+              <input type="date" id="yieldRangeStart" class="pastel-date-input" />
+              <label for="yieldRangeEnd">Até</label>
+              <input type="date" id="yieldRangeEnd" class="pastel-date-input" />
+              <span id="yieldRangeStatus" role="status" aria-live="polite"></span>
+              <small>Inclui as duas datas. Aportes e retiradas não são somados como rendimento.</small>
+            </div>
+
+            <div class="table-wrapper">
+              <table class="pastel-table" id="tableDailyInvestments">
+                <thead>
+                  <tr>
+                    <th>Investimento / Caixinha</th>
+                    <th class="text-right">Valor Anterior</th>
+                    <th class="text-right" title="Digite valor positivo (ex: 100) se colocou dinheiro, ou negativo (ex: -20) se tirou/transferiu">Coloquei / Tirei (R$)</th>
+                    <th class="text-right">Novo Valor Total (Hoje)</th>
+                    <th class="text-right">Rendeu no Dia</th>
+                    <th class="text-right">Rendeu na Semana</th>
+                    <th class="text-right">Rendeu no Mês</th>
+                    <th class="text-right">Rendeu no intervalo</th>
+                    <th class="col-actions"></th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyDailyInvestments"></tbody>
+                <tfoot>
+                  <tr class="row-total total-mint">
+                    <td><strong>TOTAL SOMANDO TODOS</strong></td>
+                    <td class="text-right"><strong id="totInvAnterior">R$ 0,00</strong></td>
+                    <td class="text-right"><strong id="totInvAporte">R$ 0,00</strong></td>
+                    <td class="text-right"><strong id="totInvAtual">R$ 0,00</strong></td>
+                    <td class="text-right"><strong id="totRendeuDia">R$ 0,00</strong></td>
+                    <td class="text-right"><strong id="totRendeuSemana">R$ 0,00</strong></td>
+                    <td class="text-right"><strong id="totRendeuMes">R$ 0,00</strong></td>
+                    <td class="text-right"><strong id="totRendeuIntervalo">—</strong></td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          <!-- Gráficos da Aba de Investimentos: Distribuição (%) & Trajetória (Linha) -->
+          <div class="invest-charts-row">
+            <!-- Gráfico de Pizza de Distribuição com animação e hover -->
+            <div class="card-pastel section-card">
+              <div class="card-header header-lavender">
+                <div class="card-title-group">
+                  <i data-lucide="pie-chart"></i>
+                  <h2>Distribuição dos Investimentos (%)</h2>
+                </div>
+                <span class="badge-auto">Interativo</span>
+              </div>
+              <div class="pie-tab-wrapper">
+                <canvas id="tabInvestmentsPieChart"></canvas>
+              </div>
+            </div>
+
+            <!-- Gráfico de Trajetória dos Investimentos -->
+            <div class="card-pastel section-card">
+              <div class="card-header header-peach">
+                <div class="card-title-group">
+                  <i data-lucide="line-chart"></i>
+                  <h2>Gráfico de Trajetória dos Investimentos</h2>
+                </div>
+                <select id="selectTrajectoryFilter" class="pastel-filter-select">
+                  <option value="ALL">Somando Todos (Patrimônio Total)</option>
+                  <option value="SEPARATED">Separados por Cada Investimento</option>
+                  <option value="nubank 120">Apenas nubank 120</option>
+                  <option value="nubank 130">Apenas nubank 130</option>
+                  <option value="mercado livre">Apenas mercado livre</option>
+                  <option value="mercado pago">Apenas mercado pago</option>
+                  <option value="XP">Apenas XP</option>
+                </select>
+              </div>
+              <div class="trajectory-chart-wrapper">
+                <canvas id="trajectoryLineChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Histórico de Rendimentos Diários -->
+          <div class="card-pastel section-card" style="margin-top: 20px;">
+            <div class="card-header header-sky">
+              <div class="card-title-group">
+                <i data-lucide="history"></i>
+                <h2>Histórico de Rendimentos Diários</h2>
+              </div>
+            </div>
+            <div class="table-wrapper history-scroll">
+              <table class="pastel-table">
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Investimento</th>
+                    <th class="text-right">De ➔ Para</th>
+                    <th class="text-right">Rendeu</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyYieldHistory"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- =================================================================== -->
+      <!-- MINIPLAYER FLUTUANTE (ESTILO YOUTUBE): IA FINANCEIRA ("SAILOR")     -->
+      <!-- Abre ao clicar no símbolo da fadinha no canto superior esquerdo     -->
+      <!-- =================================================================== -->
+      <aside id="lunaMiniplayer" class="luna-miniplayer hidden">
+        <div class="card-pastel ai-assistant-card">
+          <div class="ai-header" id="lunaMiniplayerDragHandle" title="Arraste para mover o miniplayer">
+            <div class="ai-title-info">
+              <h2>Sailor</h2>
+              <p id="aiStatusText" style="display:none;"></p>
+            </div>
+            <select id="voiceSpeedSelect" class="pastel-speed-select" title="Velocidade da voz da Sailor">
+              <option value="1.15">1.15x</option>
+              <option value="1.28" selected>1.3x</option>
+              <option value="1.42">1.4x</option>
+              <option value="1.55">1.5x</option>
+            </select>
+            <button id="btnChatHistory" class="btn-icon-round" title="Histórico de conversa com a Sailor">
+              <i data-lucide="history"></i>
+            </button>
+            <button id="btnToggleMute" class="btn-icon-round" title="Ativar/Desativar voz da Sailor">
+              <i data-lucide="volume-2" id="iconSpeaker"></i>
+            </button>
+            <button id="btnMinimizeLuna" class="btn-icon-round" title="Minimizar miniplayer">
+              <i data-lucide="minus"></i>
+            </button>
+            <button id="btnCloseLuna" class="btn-icon-round btn-close-miniplayer" title="Fechar miniplayer da Sailor">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+
+          <!-- Caixa de confirmação ao clicar no ícone de histórico -->
+          <div id="chatHistoryConfirmBox" class="chat-history-confirm-box hidden">
+            <div class="chat-history-confirm-text">
+              <i data-lucide="history"></i>
+              <span>Deseja apagar o histórico de conversa com a Sailor?</span>
+            </div>
+            <div class="chat-history-confirm-actions">
+              <button type="button" id="btnConfirmClearChat" class="btn-clear-chat-yes">Sim, apagar histórico</button>
+              <button type="button" id="btnCancelClearChat" class="btn-clear-chat-no">Cancelar</button>
+            </div>
+          </div>
+
+          <!-- Chat Messages -->
+          <div class="ai-chat-feed" id="aiChatFeed"></div>
+
+          <!-- Chat Text Input com Microfone ao lado esquerdo do Aviãozinho -->
+          <form id="aiChatForm" class="ai-input-bar">
+            <input
+              type="text"
+              id="aiTextInput"
+              placeholder="Fale com a Sailor..."
+              autocomplete="off"
+            />
+            <button type="button" id="btnMicMain" class="btn-mic-inline" title="Falar por voz com a Sailor" aria-label="Clique para falar com a Sailor">
+              <i data-lucide="mic" class="mic-icon"></i>
+            </button>
+            <button type="submit" class="btn-send" title="Enviar mensagem">
+              <i data-lucide="send"></i>
+            </button>
+          </form>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Modal para Adicionar Entrada / Saída / Investimento / Cartão -->
+  <div class="modal-backdrop hidden" id="modalBackdrop">
+    <div class="modal-card card-pastel">
+      <div class="modal-header">
+        <h3 id="modalTitle">Adicionar Registro</h3>
+        <button id="btnCloseModal" class="btn-icon-round">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <form id="modalForm">
+        <input type="hidden" id="modalType" value="saida" />
+        <input type="hidden" id="modalEditId" value="" />
+        <div class="form-group" id="groupDataPagamento">
+          <label for="inputData">Dia (1 a 31 ou -)</label>
+          <input type="text" id="inputData" value="15" />
+        </div>
+        <div class="form-group">
+          <label for="inputReferencia" id="labelReferencia">Referência / Descrição</label>
+          <input type="text" id="inputReferencia" placeholder="Ex: passagem, lanche, viagem 1/5..." required />
+        </div>
+        <div class="form-group" id="groupTitulo">
+          <label for="inputTitulo">Título (Categoria)</label>
+          <div class="category-select-row">
+            <select id="inputTitulo">
+              <option value="compras">compras</option>
+              <option value="uber">uber</option>
+              <option value="contas">contas</option>
+              <option value="parcelado">parcelado</option>
+              <option value="fatura">fatura</option>
+            </select>
+            <input type="text" id="inputCustomTitulo" placeholder="Ou digite outra..." />
+          </div>
+        </div>
+        <div class="form-group" id="groupMarcosCheck" style="display:none; flex-direction:column; gap:8px;">
+          <label style="font-size:0.82rem; font-weight:700; color:var(--text-main);">Quem vai pagar este gasto?</label>
+          <input type="checkbox" id="inputIsMarcos" style="display:none;" />
+          <div class="debtor-modal-choices" id="modalDebtorChoices">
+            <button type="button" class="debtor-choice-pill active" data-choice="meu" onclick="selectModalDebtorChoice('meu')">Meu</button>
+            <button type="button" class="debtor-choice-pill" data-choice="marcos" onclick="selectModalDebtorChoice('marcos')">Marcos</button>
+            <button type="button" class="debtor-choice-pill" data-choice="alguem" onclick="selectModalDebtorChoice('alguem')">Alguém (editar nome)</button>
+          </div>
+          <div id="wrapDebtorName" style="display:none; margin-top:4px;">
+            <label for="inputDebtorName" style="font-size:0.78rem; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Nome de quem te deve (vai aparecer nas Entradas do mês seguinte):</label>
+            <input type="text" id="inputDebtorName" placeholder="Digite o nome (ex: Fulano, Isa, Alguém...)" value="Alguém" style="width:100%; padding:8px 12px; border-radius:var(--radius-pill); border:1.5px solid rgba(111,66,193,0.28); font-family:inherit; font-size:0.85rem; outline:none;" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="inputValor">Valor (R$)</label>
+          <input type="number" id="inputValor" step="0.01" min="0" placeholder="0,00" required />
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="btnCancelModal" class="btn-pastel btn-secondary">Cancelar</button>
+          <button type="submit" class="btn-pastel btn-primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="vendor/supabase.js"></script>
+  <script src="config.js"></script>
+  <script type="module" src="cloud.js"></script>
+</body>
+</html>

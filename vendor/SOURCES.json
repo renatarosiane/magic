@@ -1,0 +1,21 @@
+{
+  "downloadedAt": "2026-11-01T07:12:35.851Z",
+  "files": [
+    {
+      "name": "chart.js",
+      "url": "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+    },
+    {
+      "name": "chartjs-plugin-datalabels.js",
+      "url": "https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"
+    },
+    {
+      "name": "lucide.js",
+      "url": "https://cdn.jsdelivr.net/npm/lucide@1.66.0/dist/umd/lucide.min.js"
+    },
+    {
+      "name": "supabase.js",
+      "url": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"
+    }
+  ]
+}
