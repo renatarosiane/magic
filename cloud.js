@@ -187,6 +187,24 @@ $('cloudSignup').addEventListener('click', () => {
   $('cloudPassword').autocomplete = signupMode ? 'new-password' : 'current-password';
   $('cloudAuthMessage').textContent = signupMode ? 'Use seu e-mail e escolha uma senha com pelo menos 8 caracteres.' : 'Entre para acessar suas finanças.';
 });
+$('cloudForgot').addEventListener('click', async () => {
+  const email = $('cloudEmail').value.trim();
+  if (!$('cloudEmail').checkValidity() || !email) {
+    $('cloudAuthMessage').textContent = 'Digite seu e-mail para receber o link de recuperação.';
+    $('cloudEmail').focus();
+    return;
+  }
+  $('cloudForgot').disabled = true;
+  try {
+    const { error } = await client.auth.resetPasswordForEmail(email, {
+      redirectTo: new URL('redefinir.html', location.href.split('#')[0]).href
+    });
+    if (error) throw error;
+    $('cloudAuthMessage').textContent = 'Se houver uma conta com esse e-mail, você receberá um link para escolher uma nova senha. Confira também o spam.';
+  } catch {
+    $('cloudAuthMessage').textContent = 'Não foi possível solicitar o link agora. Aguarde alguns minutos e tente novamente.';
+  } finally { $('cloudForgot').disabled = false; }
+});
 
 async function createInitial(payload) {
   validateSnapshot(payload);
@@ -264,6 +282,7 @@ try {
   if (config.supabaseKey.startsWith('sb_secret_')) throw new Error('Use a chave publicável, nunca uma chave secreta.');
   client = window.supabase.createClient(config.supabaseUrl, config.supabaseKey);
   $('cloudSignup').disabled = false;
+  $('cloudForgot').disabled = false;
   const { data, error } = await client.auth.getSession();
   if (error) throw error;
   if (data.session) await enter(data.session);
@@ -284,4 +303,5 @@ try {
   $('cloudAuthMessage').textContent = error.message;
   $('cloudSubmit').disabled = true;
   $('cloudSignup').disabled = true;
+  $('cloudForgot').disabled = true;
 }

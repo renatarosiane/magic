@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>Nova senha — Magic</title>
+<link rel="icon" href="logo-magic.png"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="cloud.css">
+</head><body>
+<main class="cloud-auth card-pastel"><img src="logo-magic.png" alt=""><h1>Uma nova senha para seu Magic ✨</h1>
+<p id="resetStatus" role="status">Verificando seu link de recuperação…</p>
+<form id="resetForm" hidden>
+<label for="newPassword">Nova senha</label><input type="password" id="newPassword" minlength="8" autocomplete="new-password" required>
+<label for="confirmPassword">Repita a nova senha</label><input type="password" id="confirmPassword" minlength="8" autocomplete="new-password" required>
+<button id="resetSubmit" type="submit">Salvar nova senha</button></form>
+<p><a href="./">Voltar para o Magic</a></p></main>
+<script src="vendor/supabase.js"></script><script src="config.js"></script><script type="module" src="redefinir.js"></script>
+</body></html>
