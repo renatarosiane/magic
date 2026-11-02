@@ -1,4 +1,4 @@
-import { validateSnapshot, emptySnapshot, errorMessage } from './core.js';
+import { validateSnapshot, isEmptySnapshot, errorMessage } from './core.js';
 
 const config = window.MAGIC_CONFIG || {};
 const $ = id => document.getElementById(id);
@@ -13,7 +13,7 @@ const draftKey = () => `magic:pending:${user.id}`;
 const status = text => { $('cloudStatus').textContent = text; };
 
 function preserveDraft() {
-  const draft = { baseRevision: revision, inFlight, queued };
+  const draft = { ownerId: user.id, baseRevision: revision, inFlight, queued };
   try { localStorage.setItem(draftKey(), JSON.stringify(draft)); }
   catch { throw new Error('O navegador está sem espaço. Baixe um backup antes de fechar esta página.'); }
 }
@@ -47,8 +47,8 @@ async function flush() {
       }
       preserveDraft();
       status('Sincronizando…');
-      const { data, error } = await client.rpc('magic_save', {
-        p_payload: inFlight.payload, p_expected_revision: inFlight.expected, p_request_id: inFlight.requestId
+      const { data, error } = await client.rpc('magic_save_owned', {
+        p_payload: inFlight.payload, p_expected_revision: inFlight.expected, p_request_id: inFlight.requestId, p_owner_id: user.id
       });
       if (error) throw error;
       revision = data.revision;
@@ -62,7 +62,7 @@ async function flush() {
     status('Há alterações pendentes');
     notice.textContent = errorMessage(error);
     notice.hidden = false;
-    if (String(error.message).includes('MAGIC_CONFLICT')) showLock(errorMessage(error));
+    if (/MAGIC_CONFLICT|MAGIC_ACCOUNT_CHANGED/.test(String(error.message))) showLock(errorMessage(error));
   } finally { flushing = false; }
 }
 
@@ -119,14 +119,22 @@ async function boot(payload) {
 }
 
 async function enter(session) {
+  if (window.MAGIC_BOOTSTRAP?.userId && window.MAGIC_BOOTSTRAP.userId !== session.user.id) {
+    blocked = true;
+    document.body.classList.add('cloud-locked');
+    location.reload();
+    return;
+  }
   user = session.user;
   $('cloudAuthMessage').textContent = 'Carregando seus dados…';
-  const remote = await readRemote();
+  const { data: remote, error: openError } = await client.rpc('magic_open');
+  if (openError) throw openError;
   revision = remote?.revision || 0;
   blocked = false;
   document.querySelector('.app-container').inert = false;
   let draft;
   try { draft = JSON.parse(localStorage.getItem(draftKey()) || 'null'); } catch { /* cache ilegível não substitui a nuvem */ }
+  if (draft?.ownerId && draft.ownerId !== user.id) throw new Error('O rascunho pertence a outra conta.');
   if (draft?.inFlight || draft?.queued) {
     const acknowledged = draft.inFlight && remote?.request_id === draft.inFlight.requestId;
     const local = draft.queued || draft.inFlight?.payload;
@@ -143,15 +151,7 @@ async function enter(session) {
       return;
     }
   }
-  if (remote) await boot(remote.payload);
-  else {
-    login.hidden = true;
-    welcome.hidden = false;
-    $('cloudBar').hidden = false;
-    $('cloudBackup').disabled = true;
-    $('cloudAccount').textContent = user.email;
-    status('Importe seus dados para começar');
-  }
+  await boot(remote.payload);
 }
 
 $('cloudLoginForm').addEventListener('submit', async event => {
@@ -190,7 +190,10 @@ $('cloudSignup').addEventListener('click', () => {
 
 async function createInitial(payload) {
   validateSnapshot(payload);
-  const { data, error } = await client.rpc('magic_save', { p_payload: payload, p_expected_revision: 0, p_request_id: crypto.randomUUID() });
+  if (flushing || queued || inFlight || blocked) throw new Error('Aguarde a sincronização antes de importar.');
+  const current = await readRemote();
+  if (!isEmptySnapshot(current?.payload)) throw new Error('Esta conta já tem dados. A importação não substitui sua planilha existente.');
+  const { data, error } = await client.rpc('magic_save_owned', { p_payload: payload, p_expected_revision: current.revision, p_request_id: crypto.randomUUID(), p_owner_id: user.id });
   if (error) throw error;
   revision = data.revision;
   await boot(payload);
@@ -202,13 +205,10 @@ $('cloudImport').addEventListener('change', async event => {
     if (file.size > 1500000) throw new Error('O arquivo excede 1,5 MB.');
     const payload = validateSnapshot(JSON.parse(await file.text()));
     await createInitial(payload);
-  } catch (error) { $('cloudImportMessage').textContent = error.message; }
+  } catch (error) { notice.textContent = error.message; notice.hidden = false; }
   event.target.value = '';
 });
-$('cloudStartEmpty').addEventListener('click', async () => {
-  try { await createInitial(emptySnapshot()); }
-  catch { $('cloudImportMessage').textContent = 'Não foi possível iniciar. Verifique a conexão ou entre novamente.'; }
-});
+$('cloudRestore').addEventListener('click', () => $('cloudImport').click());
 $('cloudBackup').addEventListener('click', () => {
   download(started ? window.MagicApp.snapshot() : loadedPayload, 'magic-backup-completo.json');
 });
@@ -268,13 +268,16 @@ try {
   if (error) throw error;
   if (data.session) await enter(data.session);
   else { $('cloudAuthMessage').textContent = 'Entre para acessar suas finanças.'; $('cloudSubmit').disabled = false; }
-  client.auth.onAuthStateChange(event => {
-    if (event === 'SIGNED_OUT' && started) {
+  client.auth.onAuthStateChange((event, session) => {
+    const accountChanged = user && session?.user?.id && session.user.id !== user.id;
+    if (accountChanged || event === 'SIGNED_OUT') {
+      if (user && (queued || inFlight)) { try { preserveDraft(); } catch { /* cópia permanece em memória */ } }
       blocked = true;
       document.querySelector('.app-container').inert = true;
       document.body.classList.add('cloud-locked');
       login.hidden = false;
-      $('cloudAuthMessage').textContent = 'Sua sessão expirou. Entre novamente.';
+      $('cloudAuthMessage').textContent = accountChanged ? 'Carregando a outra conta…' : 'Sua sessão expirou. Entre novamente.';
+      if (accountChanged) queueMicrotask(() => location.reload());
     }
   });
 } catch (error) {

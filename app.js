@@ -93,6 +93,21 @@ const INITIAL_DATA = Object.fromEntries(MONTH_ORDER.map(key => [key, {
   cartoes: EMPTY_CARDS_TEMPLATE()
 }]));
 const PERMANENT_STORAGE_KEY = 'magic:cache:' + window.MAGIC_BOOTSTRAP.userId;
+function accountPreferenceKey(name) { return 'magic:preferences:' + window.MAGIC_BOOTSTRAP.userId + ':' + name; }
+function getAccountPreference(name, legacyKey, fallback) {
+  const server = window.MAGIC_BOOTSTRAP.payload.preferences?.[name];
+  if (server !== undefined && server !== null) return server;
+  try {
+    const own = localStorage.getItem(accountPreferenceKey(name));
+    if (own !== null) return own;
+    // Somente a proprietária original pode herdar as preferências anteriores.
+    if (window.MAGIC_BOOTSTRAP.userId === window.MAGIC_CONFIG.legacyPreferencesOwner) {
+      return localStorage.getItem(legacyKey) ?? fallback;
+    }
+  } catch {}
+  return fallback;
+}
+
 const LEGACY_KEYS = [
   'planilha_inteligente_pastel_v4',
   'planilha_inteligente_pastel_v3',
@@ -206,7 +221,7 @@ function loadChatMemory() { return structuredClone(window.MAGIC_BOOTSTRAP.payloa
 
 function loadSavedCurrentMonth(dataObj) {
   try {
-    const savedM = localStorage.getItem('planilha_inteligente_current_month');
+    const savedM = getAccountPreference('currentMonth', 'planilha_inteligente_current_month', 'OUTUBRO');
     if (savedM && dataObj && dataObj[savedM]) return savedM;
   } catch (e) {}
   return 'OUTUBRO';
@@ -214,7 +229,7 @@ function loadSavedCurrentMonth(dataObj) {
 
 function loadSavedCurrentView() {
   try {
-    const savedV = localStorage.getItem('planilha_inteligente_current_view');
+    const savedV = getAccountPreference('currentView', 'planilha_inteligente_current_view', 'planilha');
     if (savedV && ['planilha', 'cartoes', 'investimentos'].includes(savedV)) return savedV;
   } catch (e) {}
   return 'planilha';
@@ -258,7 +273,10 @@ function updateSaveBadge(statusText, isSaving = false) {
 function magicSnapshot() {
   return { version: 'permanente', updatedAt: new Date().toISOString(), data: appState.data,
     dailyInvestments: appState.dailyInvestments, yieldHistory: appState.yieldHistory,
-    chatHistoryLog: appState.chatHistoryLog, chatMemory: appState.chatMemory };
+    chatHistoryLog: appState.chatHistoryLog, chatMemory: appState.chatMemory,
+    preferences: { ...window.MAGIC_BOOTSTRAP.payload.preferences,
+      currentMonth: appState.currentMonth, currentView: appState.currentView,
+      theme: document.body.classList.contains('dark-theme') ? 'dark' : 'light' } };
 }
 function saveToStorage() {
   window.MagicCloud.save(magicSnapshot());
@@ -459,15 +477,16 @@ function setupMonthTabsDragScroll() {
 function setMonth(monthName) {
   if (!appState.data[monthName]) return;
   appState.currentMonth = monthName;
-  try { localStorage.setItem('planilha_inteligente_current_month', monthName); } catch (e) {}
+  try { localStorage.setItem(accountPreferenceKey('currentMonth'), monthName); } catch (e) {}
   const sel = document.getElementById('monthSelect');
   if (sel) sel.value = monthName;
   renderAll();
+  saveToStorage();
 }
 
 window.switchView = function(viewName) {
   appState.currentView = viewName;
-  try { localStorage.setItem('planilha_inteligente_current_view', viewName); } catch (e) {}
+  try { localStorage.setItem(accountPreferenceKey('currentView'), viewName); } catch (e) {}
   document.querySelectorAll('.view-tab').forEach(btn => {
     btn.classList.toggle('active', btn.getAttribute('data-view') === viewName);
   });
@@ -475,6 +494,7 @@ window.switchView = function(viewName) {
     sec.classList.toggle('active', sec.id === `view-${viewName}`);
   });
   renderAll();
+  saveToStorage();
 };
 
 // =========================================================================
@@ -5989,7 +6009,7 @@ function setupCursorSparkleTrail() {
   }, { passive: true });
 }
 
-const THEME_STORAGE_KEY = 'planilha_inteligente_theme';
+const THEME_STORAGE_KEY = accountPreferenceKey('theme');
 
 function updateThemeToggleUI(isDark) {
   const btn = document.getElementById('btnThemeToggle');
@@ -6000,7 +6020,7 @@ function updateThemeToggleUI(isDark) {
 }
 
 function applySavedTheme() {
-  const saved = localStorage.getItem(THEME_STORAGE_KEY);
+  const saved = getAccountPreference('theme', 'planilha_inteligente_theme', 'light');
   const isDark = saved === 'dark';
   document.body.classList.toggle('dark-theme', isDark);
   updateThemeToggleUI(isDark);
@@ -6012,6 +6032,7 @@ window.toggleDarkTheme = function() {
   localStorage.setItem(THEME_STORAGE_KEY, isDark ? 'dark' : 'light');
   updateThemeToggleUI(isDark);
   renderAll();
+  saveToStorage();
 };
 
 function startMagicApp() {
@@ -6703,11 +6724,20 @@ window.MagicApp = {
     }) || !document.getElementById('modalBackdrop')?.classList.contains('hidden');
   },
   applyRemote(payload) {
+    window.MAGIC_BOOTSTRAP.payload = structuredClone(payload);
     appState.data = mergeSavedDataWithDefaults(structuredClone(payload.data));
     appState.dailyInvestments = structuredClone(payload.dailyInvestments);
     appState.yieldHistory = structuredClone(payload.yieldHistory);
     appState.chatHistoryLog = structuredClone(payload.chatHistoryLog);
     appState.chatMemory = structuredClone(payload.chatMemory);
+    const prefs = payload.preferences || {};
+    if (prefs.currentMonth && appState.data[prefs.currentMonth]) appState.currentMonth = prefs.currentMonth;
+    if (['planilha','cartoes','investimentos'].includes(prefs.currentView)) {
+      appState.currentView = prefs.currentView;
+      document.querySelectorAll('.view-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.view === prefs.currentView));
+      document.querySelectorAll('.view-section').forEach(view => view.classList.toggle('active', view.id === 'view-' + prefs.currentView));
+    }
+    if (prefs.theme) { document.body.classList.toggle('dark-theme', prefs.theme === 'dark'); updateThemeToggleUI(prefs.theme === 'dark'); }
     renderAll(); renderSavedChatHistory();
   }
 };

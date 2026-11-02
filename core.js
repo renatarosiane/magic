@@ -61,7 +61,14 @@ export function emptySnapshot(today = new Date()) {
 }
 
 export function errorMessage(error) {
+  if (String(error?.message).includes('MAGIC_ACCOUNT_CHANGED')) return 'A conta conectada mudou. Sua alteração permanece associada à conta original.';
   if (String(error?.message).includes('MAGIC_CONFLICT')) return 'Os dados foram alterados em outro aparelho. Sua alteração foi preservada neste navegador.';
   if (error?.status === 401) return 'Sua sessão expirou. Entre novamente para sincronizar.';
   return 'Não foi possível sincronizar. Sua alteração permanece neste navegador; tente novamente quando a conexão voltar.';
+}
+
+export function isEmptySnapshot(value) {
+  if (!value || value.dailyInvestments?.length || value.yieldHistory?.length) return false;
+  return Object.values(value.data || {}).every(month => !month.entradas?.length && !month.saidas?.length && !month.investimentos?.length
+    && Object.values(month.cartoes || {}).every(card => !card.items?.length && !Number(card.parcelasAnteriores)));
 }
