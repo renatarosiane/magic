@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>Trocar minha senha — Magic</title>
+<link rel="icon" href="logo-magic.png"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="cloud.css">
+</head><body><main class="cloud-auth card-pastel">
+<img src="logo-magic.png" alt=""><h1>Trocar minha senha ✨</h1>
+<p id="passwordStatus" role="status">Verificando a conta conectada…</p>
+<p id="passwordIdentity" hidden>Você vai alterar a senha da conta:<br><strong id="passwordAccount"></strong></p>
+<form id="passwordForm" hidden>
+<label for="passwordNew">Nova senha</label><input id="passwordNew" type="password" minlength="8" autocomplete="new-password" required>
+<label for="passwordConfirm">Repita a nova senha</label><input id="passwordConfirm" type="password" minlength="8" autocomplete="new-password" required>
+<button id="passwordSave" type="submit">Salvar senha desta conta</button></form>
+<p><a href="./">Voltar ao Magic</a></p></main>
+<script src="vendor/supabase.js"></script><script src="config.js"></script><script type="module" src="senha.js"></script>
+</body></html>
