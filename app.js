@@ -529,6 +529,17 @@ function setCardPurchaseAmount(item, total, count) {
   item.valor = count > 1 ? cardInstallmentCents(item.installmentPlan, 0) / 100 : totalCents / 100;
 }
 
+function setCardPurchaseFromForm(item, amount, count) {
+  const installment = count === 1 ? item.referencia.match(/^.+\s+1\s*\/\s*(\d{1,3})\s*$/) : null;
+  const declaredCount = Number(installment?.[1]);
+  if (declaredCount >= 2 && declaredCount <= 120) {
+    const totalCents = Math.round(amount * 100) * declaredCount;
+    setCardPurchaseAmount(item, totalCents / 100, declaredCount);
+    return;
+  }
+  setCardPurchaseAmount(item, amount, count);
+}
+
 function calculateCardInstallments(monthName, cardKey) {
   const month = cardMonthNumber(monthName);
   let first = 0;
@@ -6754,7 +6765,7 @@ function startMagicApp() {
         if (item) {
           const previousCount = item.installmentPlan?.count ?? 1;
           item.referencia = ref;
-          if (item.installmentPlan) setCardPurchaseAmount(item, val, count);
+          if (item.installmentPlan) setCardPurchaseFromForm(item, val, count);
           else item.valor = Number(val.toFixed(2));
           item.data = dataPag;
           item.titulo = titulo;
@@ -6770,9 +6781,9 @@ function startMagicApp() {
       }
       const newId = 'c_' + Date.now();
       const item = { id: newId, data: dataPag, referencia: ref, titulo, isMarcos, devedor: debtorName };
-      setCardPurchaseAmount(item, val, count);
+      setCardPurchaseFromForm(item, val, count);
       monthObj.cartoes[cardKey].items.push(item);
-      syncCardPurchaseMonths(appState.currentMonth, cardKey, 1, count);
+      syncCardPurchaseMonths(appState.currentMonth, cardKey, 1, item.installmentPlan.count);
       saveToStorage();
       closeModal();
       renderAll(newId);
