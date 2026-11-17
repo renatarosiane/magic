@@ -279,7 +279,7 @@ function magicSnapshot() {
       theme: document.body.classList.contains('dark-theme') ? 'dark' : 'light' } };
 }
 function saveToStorage() {
-  window.MagicCloud.save(magicSnapshot());
+  return window.MagicCloud.save(magicSnapshot());
 }
 async function initDiskDatabaseSync() { /* O bootstrap autenticado já carregou os dados. */ }
 
@@ -3319,7 +3319,8 @@ window.editInline = function(listName, id, field) {
 // ====================================================
 // IA FINANCEIRA ("LUNA") — CONTROLE TOTAL DA PLANILHA
 // ====================================================
-function addChatBubble(sender, htmlContent, actionBadge = null, skipPersist = false) {
+function addChatBubble(sender, htmlContent, actionBadge = null, skipPersist = false, userInitiated = false) {
+  if (!skipPersist && !userInitiated) return;
   const feed = document.getElementById('aiChatFeed');
   if (!feed) return;
   const div = document.createElement('div');
@@ -3363,7 +3364,6 @@ function renderSavedChatHistory() {
   if (!feed) return;
   feed.innerHTML = '';
   appState.chatHistoryLog.forEach(entry => addChatBubble(entry.sender, entry.htmlContent, entry.actionBadge, true));
-  if (!appState.chatHistoryLog.length) addChatBubble('ai', 'Oiii! Sou a <strong>Sailor</strong>. Posso ajudar com seus lançamentos, cartões e investimentos. ✨', 'Sua assistente', true);
 }
 
 let currentAudioPlayer = null;
@@ -3471,8 +3471,8 @@ if ('speechSynthesis' in window) {
  * 2. Caso contrário, usa o streaming Neural Cloud Feminino (/api/tts) com pré-carregamento paralelo entre frases.
  * 3. No fallback offline, força a seleção de voz feminina (Maria/Google pt-BR) e nunca usa vozes masculinas (Antonio/Daniel).
  */
-async function speakText(rawText) {
-  if (appState.voiceMuted || !('speechSynthesis' in window)) return;
+async function speakText(rawText, userInitiated = false) {
+  if (!userInitiated || appState.voiceMuted || !('speechSynthesis' in window)) return;
   stopCurrentSpeech();
   const text = formatTextForNaturalSpeech(rawText);
   if (!text) return;
@@ -4568,40 +4568,229 @@ function tryExecuteSmartCommand(rawText) {
   return false;
 }
 
-function processUserMessage(rawMessage) {
-  const text = rawMessage.trim();
-  if (!text) return;
+let sailorBusy = false;
 
-  addChatBubble('user', escapeHtml(text));
-  const lower = text.toLowerCase();
-
-  // 1. Primeiro tenta executar comandos diretos (adicionar/editar/remover em qualquer mês, ano 2026/2027, cartões ou investimentos)
-  if (tryExecuteSmartCommand(text)) {
-    appState.chatMemory.push({ role: 'user', content: text });
-    return;
-  }
-
-  // 2. Se pediu para mostrar / localizar / que dia pagou / qual valor / onde está qualquer item ou parcela
-  const isShowDayOrItemIntent = /(mostra|mostre|mostrar|me\s+mostra|onde\s+est[aá]|onde\s+t[aá]|onde\s+fica|cad[eê]|leva|me\s+leva|localiza|acha|achar|destaca|destaque|ver\s+onde|quero\s+ver|que\s+dia|qual\s+dia|qual\s+a\s+data|quando\s+paguei|quando\s+vence|dia\s+que\s+paguei|quanto\s+paguei|quanto\s+foi|quanto\s+custou|qual\s+o\s+valor)/.test(lower);
-  if (isShowDayOrItemIntent &&
-      !/(muda|mude|altera|altere|atualiza|atualize|apaga|remove|exclui|anota|adiciona|coloca|soma|somar|at[eé]\s+dezembro|at[eé]\s+janeiro|at[eé]\s+fevereiro|at[eé]\s+mar[cç]o)/.test(lower)) {
-    const located = tryLocateAndSpotlightRequestedItem(normalizeWhatsappText(lower));
-    if (located) {
-      appState.chatMemory.push({ role: 'user', content: text });
-      appState.chatMemory.push({ role: 'assistant', content: located.speech });
-      addChatBubble('ai', located.html, located.badge);
-      speakText(located.speech);
-      return;
-    }
-  }
-
-  // 3. Caso contrário (ou se for um comando complexo/múltiplo/conversa livre), envia para o Cérebro Agêntico da Sailor IA!
-  handleLunaConversationOrAdvice(text, lower);
+function sailorDate(date) {
+  if (typeof date !== 'string' || !/^(20\d{2})-\d{2}-\d{2}$/.test(date)) return null;
+  const parsed = new Date(date + 'T00:00:00Z');
+  return Number.isFinite(+parsed) && parsed.toISOString().slice(0, 10) === date ? date : null;
 }
 
-/**
- * Normaliza abreviações de WhatsApp ("td", "vc", "tb", "pq", "oq", "amg") para entender qualquer conversa natural
- */
+function sailorMonthKey(date) {
+  const year = date.slice(0, 4);
+  const month = BASE_MONTH_NAMES_UPPER[Number(date.slice(5, 7)) - 1];
+  if (year === '2026' && Number(date.slice(5, 7)) >= 10) return month;
+  if (year === '2027' && Number(date.slice(5, 7)) <= 9) return month;
+  return month + ' ' + year;
+}
+
+function querySailorSheet(query) {
+  const from = sailorDate(query?.from);
+  const to = sailorDate(query?.to);
+  if (!from || !to || from > to || !Array.isArray(query.sections) || !query.sections.length) return null;
+  const wanted = new Set(query.sections);
+  const term = typeof query.search === 'string' ? query.search.trim().toLowerCase() : '';
+  const rows = [];
+  const totals = {};
+  const add = row => {
+    if (term && !String(row.name + ' ' + (row.category ?? '')).toLowerCase().includes(term)) return;
+    rows.push(row);
+    const cents = Math.round(row.amount * 100);
+    totals[row.section] = (totals[row.section] ?? 0) + cents;
+  };
+  for (const month of MONTH_ORDER) {
+    const number = cardMonthNumber(month);
+    const monthDate = String(Math.floor(number / 12)) + '-' + String(number % 12 + 1).padStart(2, '0');
+    if (monthDate < from.slice(0, 7) || monthDate > to.slice(0, 7)) continue;
+    const data = appState.data[month];
+    const lists = [];
+    if (wanted.has('expenses')) lists.push(['expenses', data.saidas]);
+    if (wanted.has('income')) lists.push(['income', data.entradas]);
+    if (wanted.has('cards')) {
+      for (const card of ['nubank', 'mercadopago']) lists.push([card, data.cartoes[card].items]);
+      const previous = getPreviousMonthName(month);
+      if (previous) {
+        const cards = calculateCardTotals(previous);
+        rows.push({ section: 'invoice', month: monthDate, nubank: cards.nu, mercadopago: cards.mp,
+          reimbursements: cards.debtors });
+      }
+    }
+    for (const [section, entries] of lists) {
+      for (const item of entries) {
+        const day = String(item.data ?? '');
+        const date = /^\d{1,2}$/.test(day) ? sailorDate(monthDate + '-' + day.padStart(2, '0')) : null;
+        if (date && (date < from || date > to)) continue;
+        if (!date && (from > monthDate + '-01' || to < monthDate + '-' + new Date(Date.UTC(Math.floor(number / 12), number % 12 + 1, 0)).getUTCDate())) continue;
+        add({ section, id: item.id, month: monthDate, date, name: item.referencia, category: item.titulo,
+          amount: item.valor, debtor: item.devedor, installments: item.installmentPlan });
+      }
+    }
+    if (wanted.has('replacement')) {
+      const f = calculateCascadingFinancials(month);
+      rows.push({ section: 'replacement', month: monthDate, cashFlow: f.fluxoMesAtual });
+    }
+  }
+  if (wanted.has('investments')) {
+    for (const item of appState.dailyInvestments) add({ section: 'investments', id: item.id, name: item.nome, amount: item.valor });
+  }
+  if (wanted.has('yield')) {
+    for (const item of appState.yieldHistory) {
+      if (item.date >= from && item.date <= to) add({ section: 'yield', name: item.nome, date: item.date, amount: item.yieldVal });
+    }
+  }
+  const largestExpenses = rows.filter(row => row.section === 'expenses').sort((a, b) => b.amount - a.amount).slice(0, 8);
+  const yieldByInvestment = Object.create(null);
+  for (const row of rows.filter(row => row.section === 'yield')) {
+    yieldByInvestment[row.name] = (Object.hasOwn(yieldByInvestment, row.name) ? yieldByInvestment[row.name] : 0) + Math.round(row.amount * 100);
+  }
+  return {
+    from, to, totals: Object.fromEntries(Object.entries(totals).map(([key, cents]) => [key, cents / 100])),
+    yieldByInvestment: Object.entries(yieldByInvestment).map(([name, cents]) => ({ name, amount: cents / 100 })),
+    largestExpenses, count: rows.length, truncated: rows.length > 70, rows: rows.slice(0, 70)
+  };
+}
+
+function applySailorAction(action, query, today) {
+  const type = action?.type;
+  if (!['add_expense', 'add_income', 'add_card', 'edit', 'delete', 'investment_transfer'].includes(type)) {
+    return { reply: 'Que alteração você quer que eu faça?' };
+  }
+  const date = sailorDate(action.date);
+  if (!date) return { reply: 'Qual é a data do lançamento?' };
+  const amount = action.amount;
+  const validAmount = Number.isFinite(amount) && Math.abs(amount) <= 100000000 && amount !== 0;
+  const name = typeof action.name === 'string' ? action.name.trim().slice(0, 180) : '';
+  const confirmChange = message => window.confirm(message);
+  const completed = label => ({ label });
+  if (type === 'investment_transfer') {
+    const match = query?.rows.find(row => row.section === 'investments' && row.id === action.id);
+    const investment = appState.dailyInvestments.find(item => item.id === match?.id && item.valor === match.amount);
+    if (!investment || appState.dailyInvestments.filter(item => item.nome.toLowerCase() === investment.nome.toLowerCase()).length !== 1) {
+      return { reply: 'Qual investimento você quer movimentar? Preciso identificar um só.' };
+    }
+    if (!validAmount || investment.valor + amount < 0 || date > today) return { reply: 'Confirme a data e um valor compatível com o saldo do investimento.' };
+    if (!confirmChange('Registrar ' + formatBRL(amount) + ' em ' + investment.nome + ' em ' + date + '?')) return { reply: 'Movimentação cancelada.' };
+    const updated = window.updateSingleInvestmentToday(investment.nome, Math.round((investment.valor + amount) * 100) / 100, date, amount, true);
+    return updated ? completed('Movimentação de ' + formatBRL(amount) + ' em ' + investment.nome) : { reply: 'A movimentação não pôde ser registrada.' };
+  }
+  const edit = type === 'edit' || type === 'delete';
+  const section = edit ? action.section : type === 'add_income' ? 'income' : type === 'add_expense' ? 'expenses' : action.card;
+  if (!['expenses', 'income', 'nubank', 'mercadopago'].includes(section)) return { reply: 'Em qual seção devo fazer a alteração?' };
+  const month = sailorMonthKey(date);
+  const selectList = state => section === 'expenses' ? state.saidas : section === 'income' ? state.entradas : state.cartoes[section].items;
+  const isCard = section === 'nubank' || section === 'mercadopago';
+  if (edit) {
+    const found = query?.rows.find(row => row.section === section && row.id === action.id && row.month === date.slice(0, 7));
+    const state = appState.data[month];
+    const list = state && selectList(state);
+    const matches = found ? query.rows.filter(row => row.section === section && row.month === found.month
+      && row.date === found.date && row.name === found.name && row.amount === found.amount) : [];
+    if (!found) return { reply: 'Qual lançamento devo alterar? Preciso localizar a linha primeiro.' };
+    if (matches.length !== 1) return { reply: 'Encontrei lançamentos parecidos. Qual deles você quer alterar?' };
+    const index = list?.findIndex(item => item.id === found.id && item.valor === found.amount && item.referencia === found.name);
+    if (!(index >= 0)) return { reply: 'Qual lançamento devo alterar? Preciso localizar uma única linha.' };
+    const item = list[index];
+    if (item.isCardSync || item.cardInstallmentInvoice || (section === 'expenses' && item.titulo === 'fatura')) {
+      return { reply: 'Essa linha pertence a uma fatura ou reembolso. Indique a compra no cartão de origem.' };
+    }
+    if (type === 'edit' && (!validAmount || amount < 0)) return { reply: 'Qual deve ser o novo valor?' };
+    const description = item.referencia + ' (' + formatBRL(item.valor) + ', ' + getMonthLabel(month) + ')';
+    if (!confirmChange((type === 'delete' ? 'Excluir ' : 'Alterar para ' + formatBRL(amount) + ' o lançamento ') + description + '?')) return { reply: 'Alteração cancelada.' };
+    const count = item.installmentPlan?.count ?? 1;
+    if (type === 'delete') list.splice(index, 1);
+    else if (isCard && item.installmentPlan) setCardPurchaseAmount(item, amount, count);
+    else item.valor = Math.round(amount * 100) / 100;
+    if (isCard) syncCardPurchaseMonths(month, section, count, type === 'delete' ? 1 : count);
+    return completed((type === 'delete' ? 'Exclusão de ' : 'Alteração de ') + item.referencia);
+  }
+  if (!validAmount || amount < 0 || !name) return { reply: 'Qual é a descrição e o valor do lançamento?' };
+  const count = action.installments ?? 1;
+  if (isCard && (!Number.isInteger(count) || count < 1 || count > 120)) return { reply: 'Quantas parcelas são?' };
+  if (date < today && !confirmChange('Registrar ' + name + ' (' + formatBRL(amount) + ') em ' + date + '?')) return { reply: 'Lançamento cancelado.' };
+  const year = Number(date.slice(0, 4));
+  if (year > Number(today.slice(0, 4)) + 10) return { reply: 'Confirme a data do lançamento.' };
+  for (let availableYear = 2028; availableYear <= year; availableYear++) {
+    if (!AVAILABLE_YEARS.includes(String(availableYear))) registerYearInSystem(String(availableYear));
+  }
+  const state = appState.data[month];
+  if (!state) return { reply: 'Esse mês ainda não está disponível na planilha.' };
+  const item = { id: 'sailor_' + crypto.randomUUID(), referencia: name, valor: Math.round(amount * 100) / 100,
+    data: String(Number(date.slice(8))) };
+  if (section !== 'income') {
+    item.titulo = typeof action.category === 'string' ? action.category.trim().slice(0, 60) || 'compras' : 'compras';
+  }
+  if (isCard) {
+    item.devedor = typeof action.debtor === 'string' ? action.debtor.trim().slice(0, 80) || null : null;
+    item.isMarcos = item.devedor?.toLowerCase() === 'marcos';
+    setCardPurchaseAmount(item, amount, count);
+  }
+  selectList(state).push(item);
+  if (isCard) syncCardPurchaseMonths(month, section, 1, count);
+  return completed(name + ' de ' + formatBRL(amount) + ' em ' + date);
+}
+
+async function processUserMessage(rawMessage) {
+  const message = rawMessage.trim();
+  if (!message || sailorBusy) return;
+  sailorBusy = true;
+  let requestSent = false;
+  const feed = document.getElementById('aiChatFeed');
+  const pending = document.createElement('div');
+  pending.className = 'chat-bubble bubble-ai';
+  pending.textContent = 'Sailor está pensando…';
+  const reply = text => {
+    pending.remove();
+    const message = text.slice(0, 2400);
+    appState.chatMemory.push({ role: 'assistant', content: message });
+    appState.chatMemory = appState.chatMemory.slice(-10);
+    addChatBubble('ai', escapeHtml(message).replace(/\n/g, '<br>'), null, false, true);
+    void speakText(message, true);
+  };
+  try {
+    if (message.length > 2400) return reply('Pode dividir o pedido em mensagens menores? Assim consigo considerar todas as informações.');
+    const owner = window.MAGIC_BOOTSTRAP.userId;
+    addChatBubble('user', escapeHtml(message), null, false, true);
+    appState.chatMemory.push({ role: 'user', content: message });
+    feed.append(pending);
+    const today = getTodayLocalISO();
+    const context = {
+      today,
+      months: MONTH_ORDER.map(getMonthLabel),
+      history: appState.chatMemory.filter(entry => ['user', 'assistant'].includes(entry.role)
+        && typeof entry.content === 'string').slice(-10).map(entry => ({
+          role: entry.role, content: entry.content.slice(0, 2400)
+        }))
+    };
+    let result = await window.MagicCloud.chat(context);
+    let data;
+    if (result?.query) {
+      data = querySailorSheet(result.query);
+      if (!data) return reply('Qual período e qual parte da planilha devo consultar?');
+      result = await window.MagicCloud.chat({ ...context, result: data });
+    }
+    if (result?.action) {
+      if (!window.MagicCloud.canEdit(owner)) return reply('Não consegui verificar a conta para aplicar a alteração.');
+      const outcome = applySailorAction(result.action, data, today);
+      if (outcome.reply) return reply(outcome.reply);
+      requestSent = true;
+      const saved = saveToStorage() && await window.MagicCloud.confirmSave();
+      renderAll();
+      return reply(saved
+        ? outcome.label + ' · salvo online.'
+        : outcome.label + ' · a sincronização ainda não foi confirmada. Confira o aviso do Magic antes de tentar de novo.');
+    }
+    if (typeof result?.reply === 'string' && result.reply.trim()) return reply(result.reply.trim());
+    reply('Pode me dizer um pouco mais sobre o que você quer consultar ou alterar?');
+  } catch {
+    reply(requestSent
+      ? 'A sincronização ainda não foi confirmada. Confira o aviso do Magic antes de tentar de novo.'
+      : 'Não consegui falar com o modelo da Sailor agora. Tente novamente em instantes.');
+  } finally {
+    pending.remove();
+    sailorBusy = false;
+  }
+}
+
 function normalizeWhatsappText(str) {
   return String(str || '')
     .toLowerCase()
@@ -5681,145 +5870,6 @@ function extractCleanAIMessage(raw) {
   }
 
   return str.trim();
-}
-
-async function handleLunaConversationOrAdvice(rawText, lowerRaw) {
-  const norm = normalizeWhatsappText(lowerRaw);
-
-  // Guarda na memória de conversa
-  appState.chatMemory.push({ role: 'user', content: rawText });
-  if (appState.chatMemory.length > 14) appState.chatMemory.shift();
-
-  // 0. Verifica se perguntou "que dia paguei X", "quanto foi X", "me mostra X", "onde está X"
-  const directLocated = tryLocateAndSpotlightRequestedItem(norm);
-  if (directLocated) {
-    appState.chatMemory.push({ role: 'assistant', content: directLocated.speech });
-    addChatBubble('ai', directLocated.html, directLocated.badge);
-    speakText(directLocated.speech);
-    return;
-  }
-
-  // 1. Verifica perguntas sobre COMPRAS PARCELADAS (qualquer item com "/", ex: "viagem rj 1/6", "chapinha 9/10", "shein 3/4")
-  const installmentAnswer = trySolveInstallmentQuestion(norm);
-  if (installmentAnswer) {
-    appState.chatMemory.push({ role: 'assistant', content: installmentAnswer.speech });
-    addChatBubble('ai', installmentAnswer.html, installmentAnswer.badge);
-    speakText(installmentAnswer.speech);
-    return;
-  }
-
-  // 1.5. Verifica perguntas sobre REPOSIÇÃO DO INVESTIMENTO / QUANTO TIROU / DEVOLUÇÃO AUTOMÁTICA EM DEZEMBRO / SIMULAÇÃO DE SOBRA
-  const repAnswer = trySolveReplenishmentQuestion(norm);
-  if (repAnswer) {
-    appState.chatMemory.push({ role: 'assistant', content: repAnswer.speech });
-    addChatBubble('ai', repAnswer.html, repAnswer.badge);
-    speakText(repAnswer.speech);
-    return;
-  }
-
-  // Sempre destaca por 3s qualquer item, categoria, cartão ou investimento mencionado na pergunta!
-  autoSpotlightFromAnyQuestion(norm);
-
-  // 2. Verifica se é uma pergunta de soma/cálculo direto entre meses para resposta instantânea + precisa
-  const mathAnswer = trySolveAnalyticalMathQuestion(norm);
-  if (mathAnswer) {
-    appState.chatMemory.push({ role: 'assistant', content: mathAnswer.speech });
-    addChatBubble('ai', mathAnswer.html, mathAnswer.badge);
-    speakText(mathAnswer.speech);
-    return;
-  }
-
-  // 2. Chama o Cérebro de IA Real (/api/chat) injetando 100% DOS DADOS DE TODAS AS PLANILHAS, CARTÕES E INVESTIMENTOS!
-  // Assim a Luna analisa literalmente QUALQUER pergunta sobre a planilha OU conversa sobre qualquer outro assunto!
-  const thinkingId = 'thinking_' + Date.now();
-  const feed = document.getElementById('aiChatFeed');
-  const thinkingDiv = document.createElement('div');
-  thinkingDiv.id = thinkingId;
-  thinkingDiv.className = 'chat-bubble bubble-ai';
-  thinkingDiv.innerHTML = `<em>Analisando... ✨</em>`;
-  feed.appendChild(thinkingDiv);
-  feed.scrollTop = feed.scrollHeight;
-
-  const fullSpreadsheetContext = buildFullSpreadsheetContextForAI();
-
-  try {
-    const systemPrompt = `Você é a Sailor, a assistente financeira agêntica superinteligente (nível ChatGPT / Gemini) e melhor amiga ("miga") da usuária.
-Você tem acesso COMPLETO e controle de escrita/edição em tempo real sobre todas as planilhas dela de Outubro 2026 até Dezembro 2027:
-• Meses de 2026: "OUTUBRO", "NOVEMBRO", "DEZEMBRO"
-• Meses de 2027: "JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO 2027", "NOVEMBRO 2027", "DEZEMBRO 2027"
-• Cartões de Crédito: Mercado Pago ("mercadopago") e Nubank ("nubank"), com suporte a quem deve ("Meu", "Marcos" ou o nome de qualquer pessoa).
-• Investimentos e Rendimentos Diários (incluindo aportes/retiradas sem contar como rendimento).
-
-Abaixo estão TODOS os dados exatos da planilha neste segundo:
-${fullSpreadsheetContext}
-
-COMO EXECUTAR AÇÕES NA PLANILHA (<SAILOR_ACTIONS>):
-Sempre que a usuária pedir para adicionar, colocar, mudar, atualizar, editar ou apagar qualquer coisa na planilha, nos cartões ou nos investimentos (em um mês específico, vários meses ou todos os meses de 2027/2026), você DEVE incluir no início da sua resposta um bloco <SAILOR_ACTIONS>[...]</SAILOR_ACTIONS> contendo um array JSON válido de ações, seguido da sua resposta carinhosa!
-Exemplos de objetos dentro do array JSON de <SAILOR_ACTIONS>:
-- Adicionar entrada: {"type":"add_entrada","months":["ALL_2027"],"referencia":"entrada","valor":200} (use um nome limpo em "referencia", NUNCA inclua "todas as entradas de 2027" no nome!)
-- Atualizar entrada: {"type":"update_entrada","months":["JANEIRO"],"target":"salário","valor":1800}
-- Remover entrada: {"type":"delete_entrada","months":["ALL_2027"],"valor":200}
-- Adicionar gasto/saída: {"type":"add_saida","months":["ABRIL"],"data":"15","referencia":"internet","titulo":"contas","valor":100,"parcelas":1}
-- Atualizar gasto/saída: {"type":"update_saida","months":["DEZEMBRO"],"target":"faculdade","valor":150}
-- Remover gasto/saída: {"type":"delete_saida","months":["NOVEMBRO"],"target":"uber"}
-- Adicionar no cartão: {"type":"add_cartao","months":["OUTUBRO"],"cartao":"nubank","data":"12","referencia":"pizza","titulo":"compras","valor":60,"devedor":"Marcos"}. Para uma nova compra parcelada, informe "valor" como o total da compra e "parcelas" como a quantidade, somente quando explícita no pedido.
-- Remover do cartão: {"type":"delete_cartao","months":["OUTUBRO"],"cartao":"nubank","target":"pizza"}
-- Atualizar investimento (com ou sem aporte): {"type":"update_investimento","nome":"nubank 120","aporte":100,"novoValorTotal":181.14}
-- Adicionar novo investimento: {"type":"add_investimento","nome":"CDB Itaú","valor":500}
-- Navegar para mês/aba: {"type":"navigate","view":"planilha","month":"JANEIRO"}
-
-INSTRUÇÕES DE CONVERSA:
-1. Se for apenas uma pergunta, cálculo ou conversa livre, NÃO inclua <SAILOR_ACTIONS>; apenas responda com 100% de precisão usando os dados acima!
-2. Fale com carinho e personalidade feminina brasileira ("miga", "amiga", "mulher", "arrasou", "fada sensata"), sendo direta, clara e calorosa.`;
-
-    const apiMessages = [
-      { role: 'system', content: systemPrompt },
-      ...appState.chatMemory.slice(-8)
-    ];
-
-    const res = await window.MagicCloud.chat({ messages: apiMessages, model: 'openai' });
-
-    const rawReply = (await res.text()).trim();
-    let aiReplyText = extractCleanAIMessage(rawReply);
-    const tEl = document.getElementById(thinkingId);
-    if (tEl) tEl.remove();
-
-    if (res.ok && aiReplyText && aiReplyText.length > 2) {
-      let actionBadge = 'Sailor IA ✨';
-      const actionsMatch = aiReplyText.match(/<SAILOR_ACTIONS>([\s\S]*?)<\/SAILOR_ACTIONS>/i);
-      if (actionsMatch) {
-        try {
-          const parsedActions = JSON.parse(actionsMatch[1].trim());
-          const execRes = window.executeSailorActions(parsedActions);
-          if (execRes && execRes.badge) actionBadge = execRes.badge;
-        } catch (parseErr) {
-          console.warn('Erro ao processar SAILOR_ACTIONS:', parseErr);
-        }
-        aiReplyText = aiReplyText.replace(/<SAILOR_ACTIONS>[\s\S]*?<\/SAILOR_ACTIONS>/gi, '').trim();
-      }
-
-      appState.chatMemory.push({ role: 'assistant', content: aiReplyText });
-      // Formata negritos simples de markdown (**texto**) para HTML <strong>
-      const formattedHtml = escapeHtml(aiReplyText)
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/\n/g, '<br>');
-      addChatBubble('ai', formattedHtml, actionBadge);
-      speakText(aiReplyText.replace(/\*\*/g, ''));
-      return;
-    }
-  } catch (err) {
-    const tEl = document.getElementById(thinkingId);
-    if (tEl) tEl.remove();
-  }
-
-  // 3. Fallback local caso a internet oscile
-  const fin = calculateCascadingFinancials(appState.currentMonth);
-  const yields = calculateYieldMetrics();
-  const cardTotals = calculateCardTotals('OUTUBRO');
-  const fallback = generateFinancialAdvice(norm, fin, yields, cardTotals);
-  appState.chatMemory.push({ role: 'assistant', content: fallback.speech });
-  addChatBubble('ai', fallback.html, fallback.badge);
-  speakText(fallback.speech);
 }
 
 function generateLocalBestieFallback(norm) {

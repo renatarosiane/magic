@@ -36,7 +36,13 @@ async function readRemote() {
   if (error) throw error;
   return data;
 }
-async function flush() {
+let flushPromise;
+function flush() {
+  if (!flushPromise) flushPromise = flushPending().finally(() => { flushPromise = null; });
+  return flushPromise;
+}
+
+async function flushPending() {
   if (flushing || blocked || !user || (!queued && !inFlight)) return;
   flushing = true;
   try {
@@ -85,16 +91,25 @@ function safeMarkup(raw) {
 
 window.MagicCloud = {
   save(payload) {
-    if (blocked || !started) return;
+    if (blocked || !started) return false;
     queued = structuredClone(payload);
-    try { preserveDraft(); } catch (error) { showLock(error.message); return; }
+    try { preserveDraft(); } catch (error) { showLock(error.message); return false; }
     void flush();
+    return true;
   },
   safeMarkup,
+  canEdit(owner) {
+    return Boolean(owner && owner === user?.id && started && !blocked);
+  },
+  async confirmSave() {
+    const owner = user?.id;
+    await flush();
+    return Boolean(owner && owner === user?.id && started && !blocked && !queued && !inFlight);
+  },
   async chat(body) {
     const { data, error } = await client.functions.invoke(config.chatFunction || 'magic-chat', { body });
     if (error) throw error;
-    return new Response(data.text || '', { status: 200 });
+    return data.result;
   }
 };
 
