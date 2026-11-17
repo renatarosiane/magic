@@ -1005,6 +1005,7 @@ window.updateSingleInvestmentToday = function(invName, newValNum, dateStr = null
   if (diff !== 0 || aporte !== 0) {
     appState.yieldHistory.push({
       id: 'yh_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      investmentId: invItem.id,
       date: todayStr,
       nome: invItem.nome,
       oldVal: baseEsperada,
@@ -1652,10 +1653,12 @@ function renderPlanilhaTab(monthObj, fin, highlightId) {
       <td class="text-right">${pct}%</td>
       <td class="inv-actions-cell">
         <button type="button" class="btn-edit-row" onclick="openInvestmentModal('${item.id}', 'planilha')" title="Editar investimento">Editar</button>
+        ${investmentHistoryButton()}
         <button type="button" class="btn-delete-row" onclick="deleteInvestmentItem('${item.id}', 'planilha')" title="Remover investimento">✕</button>
       </td>
     `;
     tbodyInvestimentos.appendChild(tr);
+    tr.querySelector('.investment-history-button').onclick = () => openInvestmentHistory(item);
   });
 
   document.getElementById('totalInvestimentosFooter').textContent = formatBRL(fin.baseCaixinhas);
@@ -2140,6 +2143,143 @@ function renderCartoesTab(monthObj, highlightId) {
 // RENDERIZAR ABA 3: INVESTIMENTOS, RENDIMENTOS & TRAJETÓRIA
 // =========================================================
 // Consulta somente leitura do histórico: os limites incluem os dois dias selecionados.
+function investmentHistoryButton() {
+  return `<button type="button" class="investment-history-button" aria-label="Ver histórico individual" title="Ver histórico individual">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18M7 15l4-5 4 3 6-7"/></svg>
+  </button>`;
+}
+
+function collectInvestmentPerformance(history, investmentId, name, allowLegacy) {
+  const normalizedName = name.trim().toLowerCase();
+  const days = new Map();
+  for (const entry of history) {
+    if (entry.investmentId != null ? entry.investmentId !== investmentId
+      : !allowLegacy || entry.nome?.trim().toLowerCase() !== normalizedName) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date) || !Number.isFinite(entry.yieldVal)) continue;
+    // O cadastro inicial registra um saldo, sem uma atualização de rendimento.
+    if (entry.openingBalance || (entry.yieldVal === 0 && entry.oldVal === entry.newVal
+      && entry.aporteVal === undefined)) continue;
+    const day = days.get(entry.date) ?? {
+      date: entry.date, cents: 0, factor: 1, hasPercent: true
+    };
+    day.cents += Math.round(entry.yieldVal * 100);
+    day.balance = Number.isFinite(entry.newVal) ? entry.newVal : null;
+    if (Number.isFinite(entry.oldVal) && entry.oldVal > 0) {
+      day.factor *= 1 + entry.yieldVal / entry.oldVal;
+    } else {
+      day.hasPercent = false;
+    }
+    days.set(entry.date, day);
+  }
+  let cumulativeCents = 0;
+  return [...days.values()].sort((a, b) => a.date.localeCompare(b.date)).map(day => ({
+    date: day.date,
+    balance: day.balance,
+    change: day.cents / 100,
+    cumulative: (cumulativeCents += day.cents) / 100,
+    percent: day.hasPercent ? (day.factor - 1) * 100 : null
+  }));
+}
+
+function openInvestmentHistory(investment) {
+  const matches = appState.dailyInvestments.filter(item =>
+    item.nome.trim().toLowerCase() === investment.nome.trim().toLowerCase());
+  const current = appState.dailyInvestments.includes(investment) ? investment : null;
+  const investmentId = current?.id ?? (matches.length === 1 ? matches[0].id : investment.id);
+  const allowLegacy = matches.length <= 1 && !appState.yieldHistory.some(entry =>
+    entry.investmentId != null && entry.investmentId !== investmentId
+    && entry.nome?.trim().toLowerCase() === investment.nome.trim().toLowerCase());
+  const days = collectInvestmentPerformance(appState.yieldHistory, investmentId, investment.nome, allowLegacy);
+  const last = days.at(-1);
+  const displayPeriodDate = iso => iso.split('-').reverse().join('/');
+  const percent = value => value == null ? '—'
+    : new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2, signDisplay: 'exceptZero' }).format(value) + '%';
+  const balance = value => value == null ? '—' : formatBRL(value);
+  const badge = value => value > 0 ? 'badge-yield-pos' : value < 0 ? 'badge-yield-neg' : '';
+  const dialog = document.createElement('dialog');
+  dialog.className = 'investment-history-dialog card-pastel';
+  dialog.setAttribute('aria-labelledby', 'investment-history-title');
+  dialog.innerHTML = `
+    <header class="investment-history-header">
+      <h2 id="investment-history-title">${escapeHtml(investment.nome)}</h2>
+      <button type="button" class="investment-history-button" aria-label="Fechar histórico" autofocus>✕</button>
+    </header>
+    ${last ? `
+      <p>Último registro em ${displayPeriodDate(last.date)}</p>
+      <div class="investment-history-summary">
+        <div>Valorização <strong class="${badge(Math.max(last.change, 0))}">${formatSignedBRL(Math.max(last.change, 0))}</strong></div>
+        <div>Desvalorização <strong class="${badge(Math.min(last.change, 0))}">${formatSignedBRL(Math.min(last.change, 0))}</strong></div>
+        <div>Variação diária <strong class="${badge(last.percent)}">${percent(last.percent)}</strong></div>
+        <div>Rendimento acumulado <strong class="${badge(last.cumulative)}">${formatSignedBRL(last.cumulative)}</strong></div>
+      </div>
+      <h3>Evolução do rendimento acumulado</h3>
+      ${days.length > 1 && typeof Chart === 'function' ? `
+        <div class="investment-history-chart"><canvas role="img" aria-label="Gráfico de linha do rendimento acumulado por data"></canvas></div>
+        <output class="investment-history-point" aria-live="polite">Passe o mouse ou toque em um ponto para ver o registro.</output>
+      ` : '<p>São necessários pelo menos dois dias registrados e o gráfico disponível para mostrar a evolução.</p>'}
+      <h3>Histórico diário</h3>
+      <div class="investment-history-table">
+        <table>
+          <thead><tr><th>Data</th><th>Variação</th><th>Percentual</th><th>Saldo</th></tr></thead>
+          <tbody>${[...days].reverse().map(day => `
+            <tr><td>${displayPeriodDate(day.date)}</td><td class="${badge(day.change)}">${formatSignedBRL(day.change)}</td>
+            <td class="${badge(day.percent)}">${percent(day.percent)}</td><td>${balance(day.balance)}</td></tr>
+          `).join('')}</tbody>
+        </table>
+      </div>
+    ` : '<p>Ainda não há dados suficientes para mostrar a evolução diária deste investimento.</p>'}`;
+  dialog.querySelector('button').onclick = () => dialog.close();
+  let chart;
+  dialog.addEventListener('close', () => {
+    chart?.destroy();
+    dialog.remove();
+  }, { once: true });
+  document.body.append(dialog);
+  dialog.showModal();
+  const canvas = dialog.querySelector('canvas');
+  if (!canvas) return;
+  const dark = document.body.classList.contains('dark-theme');
+  const pointColor = day => day.change > 0 ? (dark ? '#6ee7b7' : '#087f5b')
+    : day.change < 0 ? (dark ? '#fda4af' : '#be123c') : (dark ? '#ddd6fe' : '#7c3aed');
+  const axisColor = getComputedStyle(dialog).getPropertyValue('--text-muted').trim();
+  const detail = day => [
+    `Saldo: ${balance(day.balance)}`,
+    `Variação do dia: ${formatSignedBRL(day.change)} (${percent(day.percent)})`,
+    `Rendimento acumulado: ${formatSignedBRL(day.cumulative)}`
+  ];
+  chart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: days.map(day => displayPeriodDate(day.date)),
+      datasets: [{
+        data: days.map(day => day.cumulative),
+        borderColor: dark ? '#c4a3ff' : '#7c3aed',
+        backgroundColor: 'rgba(139, 92, 246, 0.18)',
+        pointBackgroundColor: days.map(pointColor),
+        pointRadius: 4, pointHoverRadius: 6, tension: 0.25, fill: 'origin'
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 350 },
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      onClick: (_, points) => {
+        if (!points.length) return;
+        const day = days[points[0].index];
+        dialog.querySelector('output').textContent = [displayPeriodDate(day.date), ...detail(day)].join(' · ');
+      },
+      scales: {
+        x: { ticks: { color: axisColor, maxTicksLimit: 6, maxRotation: 0 }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { color: axisColor, callback: value => formatBRL(value) } }
+      },
+      plugins: {
+        legend: { display: false }, datalabels: { display: false },
+        tooltip: { callbacks: { label: context => detail(days[context.dataIndex]) } }
+      }
+    }
+  });
+}
+
 function calculateYieldRange(startDate, endDate) {
   const isValidDate = value => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return false;
@@ -2252,10 +2392,12 @@ function renderInvestimentosTab(monthObj, yields, highlightId) {
       <td class="text-right"><span class="${badgeClass(m.mes)}">${formatSignedBRL(m.mes)}</span></td>
       <td class="text-right"><span id="dailyYieldRange_${inv.id}">—</span></td>
       <td class="col-actions">
+        ${investmentHistoryButton()}
         <button type="button" class="btn-delete-row" onclick="deleteInvestmentItem('${inv.id}', 'daily')" title="Excluir investimento">✕</button>
       </td>
     `;
     tbodyDaily.appendChild(tr);
+    tr.querySelector('.investment-history-button').onclick = () => openInvestmentHistory(inv);
   });
 
   document.getElementById('totInvAnterior').textContent = formatBRL(sumAnt);
@@ -6399,6 +6541,8 @@ function startMagicApp() {
         const todayStr = document.getElementById('inputDailyDate')?.value || new Date().toISOString().slice(0, 10);
         appState.yieldHistory.push({
           id: 'yh_' + Date.now(),
+          investmentId: existingDaily?.id ?? newId,
+          openingBalance: true,
           date: todayStr,
           nome: ref,
           oldVal: cleanVal,
