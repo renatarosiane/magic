@@ -798,36 +798,58 @@ h1, h2, h3, .logo-badge {
   display: inline-grid;
   place-items: center;
   vertical-align: middle;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--card-border);
+  width: 34px;
+  height: 34px;
+  border: 1px solid transparent;
   border-radius: 9px;
-  background: var(--card-bg);
-  color: var(--text-main);
+  background: transparent;
+  color: #be185d;
+  transition: background-color 150ms, border-color 150ms, color 150ms;
   cursor: pointer;
 }
-.investment-history-button:hover, .investment-history-button:focus-visible {
-  outline: 2px solid #a78bfa;
+.investment-history-button:hover {
+  background: rgba(236, 72, 153, 0.13);
+  border-color: rgba(236, 72, 153, 0.3);
+}
+.investment-history-button:focus-visible {
+  outline: 2px solid #ec4899;
   outline-offset: 1px;
 }
-.investment-history-dialog {
+body.dark-theme .investment-history-button { color: #f9a8d4; }
+.investment-history-dialog.modal-card {
+  --text-main: #fff5f9;
+  --text-muted: #dcbacc;
+  --card-border: rgba(236, 72, 153, 0.35);
+  color-scheme: dark;
   box-sizing: border-box;
-  width: min(760px, calc(100% - 24px));
-  max-height: calc(100dvh - 24px);
+  width: min(1120px, calc(100% - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
   overflow: auto;
+  overscroll-behavior: contain;
   margin: auto;
   padding: clamp(14px, 4vw, 28px);
+  background: #181116;
   color: var(--text-main);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 24px 60px rgba(55, 12, 37, 0.55);
 }
-.investment-history-dialog::backdrop { background: rgba(22, 12, 27, 0.64); }
+.investment-history-dialog::backdrop { background: rgba(35, 15, 29, 0.7); }
 .investment-history-header {
   display: flex;
   align-items: start;
   justify-content: space-between;
   gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--card-border);
 }
 .investment-history-header h2 { overflow-wrap: anywhere; }
-.investment-history-header button { flex-shrink: 0; }
+.investment-history-header button {
+  flex-shrink: 0;
+  color: #f9a8d4;
+  background: #301c29;
+  border-color: var(--card-border);
+}
 .investment-history-dialog p, .investment-history-point { color: var(--text-muted); }
 .investment-history-dialog h3 { margin: 1.25rem 0 0.65rem; }
 .investment-history-summary {
@@ -839,12 +861,44 @@ h1, h2, h3, .logo-badge {
 .investment-history-summary > div {
   border: 1px solid var(--card-border);
   border-radius: 10px;
-  padding: 8px;
+  background: #261a22;
+  padding: 12px;
   font-size: 0.8rem;
 }
 .investment-history-summary strong { display: block; margin-top: 4px; }
-.investment-history-chart { position: relative; height: clamp(220px, 40vh, 340px); }
-.investment-history-point { display: block; margin-top: 8px; font-size: 0.85rem; }
+.investment-history-hint { margin-bottom: 10px; font-size: 0.82rem; }
+.investment-history-period { display: block; margin-bottom: 10px; color: var(--text-muted); }
+.investment-history-period select {
+  max-width: 100%;
+  padding: 6px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: #261a22;
+  color: var(--text-main);
+}
+.investment-history-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  background: #22161e;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  scrollbar-color: #a64c7b #261a22;
+}
+.investment-history-scroll:focus-visible { outline: 2px solid #ec4899; }
+.investment-history-chart {
+  position: relative;
+  width: max(100%, var(--history-chart-width));
+  height: clamp(270px, 52vh, 520px);
+}
+.investment-history-point {
+  display: block;
+  margin-top: 10px;
+  padding: 10px;
+  background: #261a22;
+  border: 1px solid var(--card-border);
+  border-radius: 9px;
+  font-size: 0.85rem;
+}
 .investment-history-table { overflow: auto; }
 .investment-history-table table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 .investment-history-table th, .investment-history-table td {
@@ -854,8 +908,15 @@ h1, h2, h3, .logo-badge {
   white-space: nowrap;
 }
 .investment-history-table th:first-child, .investment-history-table td:first-child { text-align: left; }
+.investment-history-dialog .badge-yield-pos { color: #a7f3d0; background: #183529; }
+.investment-history-dialog .badge-yield-neg { color: #fecdd3; background: #462333; }
 @media (max-width: 550px) {
+  .investment-history-dialog.modal-card {
+    width: calc(100% - 12px);
+    max-height: calc(100dvh - 12px);
+  }
   .investment-history-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .investment-history-button { width: 40px; height: 40px; }
 }
 
 .btn-delete-row {

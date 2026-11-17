@@ -982,7 +982,7 @@ function syncAllMonthsWithDailyInvestments() {
  * descontando qualquer aporte/retirada ("Coloquei / Tirei") para calcular apenas o rendimento real!
  * Exemplo: tinha 81,07 + colocou 100,00 -> base esperada = 181,07. Se o novo total é 181,14, rendeu +0,07.
  */
-window.updateSingleInvestmentToday = function(invName, newValNum, dateStr = null, aporteNum = 0, skipRender = false) {
+window.updateSingleInvestmentToday = function(invName, newValNum, dateStr = null, aporteNum = 0, skipRender = false, confirmBalance = false) {
   if (isNaN(newValNum) || newValNum < 0) return null;
   const todayStr = dateStr || document.getElementById('inputDailyDate')?.value || getTodayLocalISO();
 
@@ -1002,7 +1002,7 @@ window.updateSingleInvestmentToday = function(invName, newValNum, dateStr = null
   syncAllMonthsWithDailyInvestments();
 
   // Registra no histórico de rendimentos se houve rendimento ou aporte/transferência
-  if (diff !== 0 || aporte !== 0) {
+  if (diff !== 0 || aporte !== 0 || confirmBalance) {
     appState.yieldHistory.push({
       id: 'yh_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       investmentId: invItem.id,
@@ -2145,7 +2145,7 @@ function renderCartoesTab(monthObj, highlightId) {
 // Consulta somente leitura do histórico: os limites incluem os dois dias selecionados.
 function investmentHistoryButton() {
   return `<button type="button" class="investment-history-button" aria-label="Ver histórico individual" title="Ver histórico individual">
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18M7 15l4-5 4 3 6-7"/></svg>
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 17 6-6 4 4 8-8m-6 0h6v6"/></svg>
   </button>`;
 }
 
@@ -2181,6 +2181,21 @@ function collectInvestmentPerformance(history, investmentId, name, allowLegacy) 
   }));
 }
 
+function expandInvestmentCalendar(days) {
+  if (!days.length) return [];
+  const records = new Map(days.map(day => [day.date, day]));
+  const date = new Date(days[0].date + 'T00:00:00Z');
+  const last = days.at(-1).date;
+  const calendar = [];
+  while (Number.isFinite(date.getTime())) {
+    const key = date.toISOString().slice(0, 10);
+    if (key > last) break;
+    calendar.push({ date: key, record: records.get(key) ?? null });
+    date.setUTCDate(date.getUTCDate() + 1);
+  }
+  return calendar;
+}
+
 function openInvestmentHistory(investment) {
   const matches = appState.dailyInvestments.filter(item =>
     item.nome.trim().toLowerCase() === investment.nome.trim().toLowerCase());
@@ -2190,19 +2205,25 @@ function openInvestmentHistory(investment) {
     entry.investmentId != null && entry.investmentId !== investmentId
     && entry.nome?.trim().toLowerCase() === investment.nome.trim().toLowerCase());
   const days = collectInvestmentPerformance(appState.yieldHistory, investmentId, investment.nome, allowLegacy);
+  const calendar = expandInvestmentCalendar(days);
   const last = days.at(-1);
   const displayPeriodDate = iso => iso.split('-').reverse().join('/');
+  const chartPeriods = [];
+  for (let start = 0; start < calendar.length; start += 180) {
+    chartPeriods.push(calendar.slice(start, start + 180));
+  }
+  let chartDays = chartPeriods.at(-1) ?? [];
   const percent = value => value == null ? '—'
     : new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2, signDisplay: 'exceptZero' }).format(value) + '%';
   const balance = value => value == null ? '—' : formatBRL(value);
   const badge = value => value > 0 ? 'badge-yield-pos' : value < 0 ? 'badge-yield-neg' : '';
   const dialog = document.createElement('dialog');
-  dialog.className = 'investment-history-dialog card-pastel';
+  dialog.className = 'investment-history-dialog modal-card card-pastel';
   dialog.setAttribute('aria-labelledby', 'investment-history-title');
   dialog.innerHTML = `
-    <header class="investment-history-header">
+    <header class="investment-history-header modal-header">
       <h2 id="investment-history-title">${escapeHtml(investment.nome)}</h2>
-      <button type="button" class="investment-history-button" aria-label="Fechar histórico" autofocus>✕</button>
+      <button type="button" class="btn-icon-round" aria-label="Fechar histórico" autofocus>✕</button>
     </header>
     ${last ? `
       <p>Último registro em ${displayPeriodDate(last.date)}</p>
@@ -2213,9 +2234,17 @@ function openInvestmentHistory(investment) {
         <div>Rendimento acumulado <strong class="${badge(last.cumulative)}">${formatSignedBRL(last.cumulative)}</strong></div>
       </div>
       <h3>Evolução do rendimento acumulado</h3>
-      ${days.length > 1 && typeof Chart === 'function' ? `
-        <div class="investment-history-chart"><canvas role="img" aria-label="Gráfico de linha do rendimento acumulado por data"></canvas></div>
-        <output class="investment-history-point" aria-live="polite">Passe o mouse ou toque em um ponto para ver o registro.</output>
+      ${typeof Chart === 'function' ? `
+        <p class="investment-history-hint">Deslize para consultar todas as datas. Datas sem ponto indicam dias sem registro.</p>
+        ${chartPeriods.length > 1 ? `<label class="investment-history-period">Período
+          <select>${chartPeriods.map((period, index) => `<option value="${index}" ${period === chartDays ? 'selected' : ''}>${displayPeriodDate(period[0].date)} a ${displayPeriodDate(period.at(-1).date)}</option>`).join('')}</select>
+        </label>` : ''}
+        <div class="investment-history-scroll" tabindex="0" role="region" aria-label="Gráfico diário com rolagem horizontal">
+          <div class="investment-history-chart" style="--history-chart-width: ${chartDays.length * 52 + 85}px">
+            <canvas role="img" aria-label="Gráfico de linha do rendimento acumulado por data"></canvas>
+          </div>
+        </div>
+        <output class="investment-history-point" aria-live="polite">Passe o mouse ou toque em uma data para ver os detalhes.</output>
       ` : '<p>São necessários pelo menos dois dias registrados e o gráfico disponível para mostrar a evolução.</p>'}
       <h3>Histórico diário</h3>
       <div class="investment-history-table">
@@ -2238,9 +2267,8 @@ function openInvestmentHistory(investment) {
   dialog.showModal();
   const canvas = dialog.querySelector('canvas');
   if (!canvas) return;
-  const dark = document.body.classList.contains('dark-theme');
-  const pointColor = day => day.change > 0 ? (dark ? '#6ee7b7' : '#087f5b')
-    : day.change < 0 ? (dark ? '#fda4af' : '#be123c') : (dark ? '#ddd6fe' : '#7c3aed');
+  const pointColor = day => day?.change > 0 ? '#6ee7b7'
+    : day?.change < 0 ? '#fda4af' : '#e9d5ff';
   const axisColor = getComputedStyle(dialog).getPropertyValue('--text-muted').trim();
   const detail = day => [
     `Saldo: ${balance(day.balance)}`,
@@ -2250,33 +2278,53 @@ function openInvestmentHistory(investment) {
   chart = new Chart(canvas, {
     type: 'line',
     data: {
-      labels: days.map(day => displayPeriodDate(day.date)),
+      labels: chartDays.map(day => displayPeriodDate(day.date).slice(0, 5)),
       datasets: [{
-        data: days.map(day => day.cumulative),
-        borderColor: dark ? '#c4a3ff' : '#7c3aed',
-        backgroundColor: 'rgba(139, 92, 246, 0.18)',
-        pointBackgroundColor: days.map(pointColor),
-        pointRadius: 4, pointHoverRadius: 6, tension: 0.25, fill: 'origin'
+        data: chartDays.map(day => day.record?.cumulative ?? null),
+        borderColor: '#d3a5ff',
+        backgroundColor: 'rgba(211, 165, 255, 0.17)',
+        pointBackgroundColor: chartDays.map(day => pointColor(day.record)),
+        pointRadius: 4, pointHoverRadius: 6, tension: 0.2, fill: 'origin',
+        spanGaps: false
       }]
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false, devicePixelRatio: Math.min(devicePixelRatio, 1.5),
       animation: { duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 350 },
-      interaction: { mode: 'nearest', axis: 'x', intersect: false },
-      onClick: (_, points) => {
-        if (!points.length) return;
-        const day = days[points[0].index];
-        dialog.querySelector('output').textContent = [displayPeriodDate(day.date), ...detail(day)].join(' · ');
+      interaction: { mode: 'nearest', axis: 'x', intersect: true },
+      onClick: (event, _, activeChart) => {
+        const day = chartDays[activeChart.scales.x.getValueForPixel(event.x)];
+        if (!day) return;
+        const description = day.record ? detail(day.record) : ['Sem registro de rendimento'];
+        dialog.querySelector('output').textContent = [displayPeriodDate(day.date), ...description].join(' · ');
       },
       scales: {
-        x: { ticks: { color: axisColor, maxTicksLimit: 6, maxRotation: 0 }, grid: { display: false } },
-        y: { beginAtZero: true, ticks: { color: axisColor, callback: value => formatBRL(value) } }
+        x: { offset: true, ticks: { color: axisColor, autoSkip: false, maxRotation: 0 },
+          grid: { color: 'rgba(236, 72, 153, 0.09)' } },
+        y: { beginAtZero: true, grid: { color: 'rgba(236, 72, 153, 0.15)' },
+          ticks: { color: axisColor, callback: value => formatBRL(value) } }
       },
       plugins: {
         legend: { display: false }, datalabels: { display: false },
-        tooltip: { callbacks: { label: context => detail(days[context.dataIndex]) } }
+        tooltip: { callbacks: {
+          title: items => displayPeriodDate(chartDays[items[0].dataIndex].date),
+          label: context => detail(chartDays[context.dataIndex].record)
+        } }
       }
     }
+  });
+  dialog.querySelector('.investment-history-period select')?.addEventListener('change', event => {
+    chartDays = chartPeriods[Number(event.target.value)];
+    chart.setActiveElements([]);
+    chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+    chart.data.labels = chartDays.map(day => displayPeriodDate(day.date).slice(0, 5));
+    chart.data.datasets[0].data = chartDays.map(day => day.record?.cumulative ?? null);
+    chart.data.datasets[0].pointBackgroundColor = chartDays.map(day => pointColor(day.record));
+    canvas.parentElement.style.setProperty('--history-chart-width', `${chartDays.length * 52 + 85}px`);
+    canvas.parentElement.parentElement.scrollLeft = 0;
+    dialog.querySelector('output').textContent = 'Passe o mouse ou toque em uma data para ver os detalhes.';
+    chart.resize();
+    chart.update('none');
   });
 }
 
@@ -6397,14 +6445,17 @@ function startMagicApp() {
         const newV = parseFloat(inp.value);
         const rawAporte = inpAporte && inpAporte.value.trim() !== '' ? parseFloat(inpAporte.value) : 0;
         const cleanAporte = isNaN(rawAporte) ? 0 : rawAporte;
-        if (!isNaN(newV) && (Math.abs(newV - inv.valor) > 0.001 || Math.abs(cleanAporte) > 0.001)) {
-          pendingUpdates.push({ nome: inv.nome, newV, cleanAporte });
+        const confirmBalance = inp.dataset.userTypedTotal === 'true' && !appState.yieldHistory.some(entry =>
+          entry.date === dateVal && !entry.openingBalance && (entry.investmentId != null
+            ? entry.investmentId === inv.id : entry.nome?.toLowerCase() === inv.nome.toLowerCase()));
+        if (!isNaN(newV) && (Math.abs(newV - inv.valor) > 0.001 || Math.abs(cleanAporte) > 0.001 || confirmBalance)) {
+          pendingUpdates.push({ nome: inv.nome, newV, cleanAporte, confirmBalance });
         }
       }
     });
 
     pendingUpdates.forEach(u => {
-      const res = window.updateSingleInvestmentToday(u.nome, u.newV, dateVal, u.cleanAporte, true);
+      const res = window.updateSingleInvestmentToday(u.nome, u.newV, dateVal, u.cleanAporte, true, u.confirmBalance);
       if (res) {
         totalDiffToday += res.diff;
         totalAporteToday += res.aporte;
