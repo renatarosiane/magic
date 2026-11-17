@@ -512,12 +512,45 @@ function getItemDebtor(item) {
   return null;
 }
 
+function cardMonthNumber(monthName) {
+  const month = BASE_MONTH_NAMES_UPPER.indexOf(getShortMonthDisplay(monthName).toUpperCase());
+  return Number(getYearFromMonthKey(monthName)) * 12 + month;
+}
+
+function cardInstallmentCents(schedule, offset) {
+  if (!schedule || schedule.count < 2 || offset < 0 || offset >= schedule.count) return 0;
+  const regular = Math.floor(schedule.totalCents / schedule.count);
+  return regular + (offset < schedule.totalCents % schedule.count ? 1 : 0);
+}
+
+function setCardPurchaseAmount(item, total, count) {
+  const totalCents = Math.round(total * 100);
+  item.installmentPlan = { totalCents, count };
+  item.valor = count > 1 ? cardInstallmentCents(item.installmentPlan, 0) / 100 : totalCents / 100;
+}
+
+function calculateCardInstallments(monthName, cardKey) {
+  const month = cardMonthNumber(monthName);
+  let first = 0;
+  let carried = 0;
+  for (const source of MONTH_ORDER) {
+    const offset = month - cardMonthNumber(source);
+    if (offset < 0) continue;
+    for (const item of appState.data[source]?.cartoes?.[cardKey]?.items || []) {
+      const cents = cardInstallmentCents(item.installmentPlan, offset);
+      if (offset === 0) first += cents;
+      else carried += cents;
+    }
+  }
+  return { first, carried };
+}
+
 function calculateCardTotals(monthName = appState.currentMonth) {
   const monthObj = appState.data[monthName];
   if (!monthObj || !monthObj.cartoes) {
     return {
-      mp: { parcelasAnteriores: 0, gastoMes: 0, marcos: 0, totalDebtors: 0, meu: 0, faturaFinal: 0 },
-      nu: { parcelasAnteriores: 0, gastoMes: 0, marcos: 0, totalDebtors: 0, meu: 0, faturaFinal: 0 },
+      mp: { parcelasAnteriores: 0, gastoMes: 0, marcos: 0, totalDebtors: 0, meu: 0, faturaFinal: 0, installments: { first: 0, carried: 0 } },
+      nu: { parcelasAnteriores: 0, gastoMes: 0, marcos: 0, totalDebtors: 0, meu: 0, faturaFinal: 0, installments: { first: 0, carried: 0 } },
       totalFaturas: 0,
       totalMarcos: 0,
       totalDebtors: 0,
@@ -527,6 +560,8 @@ function calculateCardTotals(monthName = appState.currentMonth) {
   }
   const mp = monthObj.cartoes.mercadopago || { items: [], parcelasAnteriores: 0 };
   const nu = monthObj.cartoes.nubank || { items: [], parcelasAnteriores: 0 };
+  const mpInstallments = calculateCardInstallments(monthName, 'mercadopago');
+  const nuInstallments = calculateCardInstallments(monthName, 'nubank');
 
   const debtors = {};
 
@@ -545,7 +580,8 @@ function calculateCardTotals(monthName = appState.currentMonth) {
     }
   });
   const mpMeu = mpGastoMes - mpTotalDebtors;
-  const mpFaturaFinal = (Number(mp.parcelasAnteriores) || 0) + mpGastoMes;
+  const mpManual = Number(mp.parcelasAnteriores) || 0;
+  const mpFaturaFinal = mpManual + mpGastoMes + mpInstallments.carried / 100;
 
   let nuGastoMes = 0;
   let nuTotalDebtors = 0;
@@ -562,20 +598,89 @@ function calculateCardTotals(monthName = appState.currentMonth) {
     }
   });
   const nuMeu = nuGastoMes - nuTotalDebtors;
-  const nuFaturaFinal = (Number(nu.parcelasAnteriores) || 0) + nuGastoMes;
+  const nuManual = Number(nu.parcelasAnteriores) || 0;
+  const nuFaturaFinal = nuManual + nuGastoMes + nuInstallments.carried / 100;
 
   const totalDebtorsAmount = mpTotalDebtors + nuTotalDebtors;
   const marcosTotal = debtors['marcos'] ? debtors['marcos'].total : 0;
 
   return {
-    mp: { parcelasAnteriores: mp.parcelasAnteriores, gastoMes: mpGastoMes, marcos: mpTotalDebtors, totalDebtors: mpTotalDebtors, meu: mpMeu, faturaFinal: mpFaturaFinal },
-    nu: { parcelasAnteriores: nu.parcelasAnteriores, gastoMes: nuGastoMes, marcos: nuTotalDebtors, totalDebtors: nuTotalDebtors, meu: nuMeu, faturaFinal: nuFaturaFinal },
+    mp: { parcelasAnteriores: mpManual + (mpInstallments.first + mpInstallments.carried) / 100, gastoMes: mpGastoMes, marcos: mpTotalDebtors, totalDebtors: mpTotalDebtors, meu: mpMeu, faturaFinal: mpFaturaFinal, installments: mpInstallments },
+    nu: { parcelasAnteriores: nuManual + (nuInstallments.first + nuInstallments.carried) / 100, gastoMes: nuGastoMes, marcos: nuTotalDebtors, totalDebtors: nuTotalDebtors, meu: nuMeu, faturaFinal: nuFaturaFinal, installments: nuInstallments },
     totalFaturas: mpFaturaFinal + nuFaturaFinal,
     totalMarcos: marcosTotal,
     totalDebtors: totalDebtorsAmount,
     totalMeu: mpMeu + nuMeu,
     debtors
   };
+}
+
+function syncCardInvoice(month, reference, dueDay, total) {
+  const automaticCents = total.installments.first + total.installments.carried;
+  const existing = month.saidas.find(item => item.referencia.toLowerCase().includes(reference))
+    ?? month.saidas.find(item => (automaticCents || item.cardInstallmentInvoice)
+      && item.titulo === 'fatura' && item.referencia.trim().toLowerCase() === reference.slice(7));
+  const legacyCents = Math.round(total.faturaFinal * 100) - automaticCents;
+  if (!existing && legacyCents + automaticCents <= 0) return;
+
+  if (existing && !automaticCents && !existing.cardInstallmentInvoice) {
+    if (legacyCents > 0) existing.valor = legacyCents / 100;
+    return;
+  }
+
+  const prior = existing?.cardInstallmentInvoice;
+  // Se a fatura já existia, a projeção acrescenta só o valor novo e guarda sua base.
+  const existingCents = existing ? Math.round(existing.valor * 100) : 0;
+  const baseCents = prior
+    ? existingCents - prior.automaticCents + legacyCents - prior.legacyCents
+    : existing ? existingCents : legacyCents;
+  const valueCents = baseCents + automaticCents;
+  if (existing && !automaticCents && prior.created && !valueCents) {
+    month.saidas = month.saidas.filter(item => item !== existing);
+    return;
+  }
+  const invoice = existing || {
+    id: `s_card_${crypto.randomUUID()}`, data: dueDay, referencia: reference, titulo: 'fatura'
+  };
+  invoice.valor = valueCents / 100;
+  if (automaticCents) {
+    invoice.cardInstallmentInvoice = { automaticCents, legacyCents, created: prior?.created ?? !existing };
+  } else {
+    delete invoice.cardInstallmentInvoice;
+  }
+  if (!existing) month.saidas.push(invoice);
+}
+
+function syncCardPurchaseMonths(spendMonth, cardKey, previousCount, currentCount) {
+  if (currentCount > 1) {
+    const lastYear = Math.floor((cardMonthNumber(spendMonth) + currentCount) / 12);
+    for (let year = Number(getYearFromMonthKey(spendMonth)) + 1; year <= lastYear; year++) {
+      if (!AVAILABLE_YEARS.includes(String(year))) registerYearInSystem(String(year));
+    }
+  }
+  syncCreditCardsToNextMonth(spendMonth);
+  const source = cardMonthNumber(spendMonth);
+  const end = source + Math.max(previousCount, currentCount);
+  for (const month of MONTH_ORDER) {
+    const number = cardMonthNumber(month);
+    if (number <= source || number >= end) continue;
+    const payMonth = getNextMonthName(month);
+    if (!payMonth) continue;
+    const totals = calculateCardTotals(month);
+    if (cardKey === 'nubank') syncCardInvoice(appState.data[payMonth], 'fatura nubank', '13', totals.nu);
+    else syncCardInvoice(appState.data[payMonth], 'fatura mercado pago', '6', totals.mp);
+  }
+}
+
+function renderCardInstallmentTotal(elementId, paymentId, total) {
+  const node = document.getElementById(elementId);
+  node.textContent = formatBRL(total.parcelasAnteriores);
+  const payMonth = getNextMonthName(appState.currentMonth);
+  const automatic = (total.installments.first + total.installments.carried) / 100;
+  const payment = payMonth ? `Pagamento em ${getMonthLabel(payMonth)}. ` : '';
+  const paymentLabel = document.getElementById(paymentId);
+  if (paymentLabel) paymentLabel.textContent = payMonth ? `(${getMonthLabel(payMonth)})` : '(fatura)';
+  node.title = `${payment}Parcelas automáticas: ${formatBRL(automatic)}. Clique para editar o valor manual.`;
 }
 
 /**
@@ -590,37 +695,8 @@ function syncCreditCardsToNextMonth(spendMonth = appState.currentMonth) {
   const totals = calculateCardTotals(spendMonth);
   const nextMonthObj = appState.data[payMonth];
 
-  // 1. Atualiza Fatura Mercado Pago no mês seguinte (se houver gasto ou parcelas anteriores)
-  if (totals.mp.faturaFinal > 0) {
-    const existingMP = nextMonthObj.saidas.find(s => s.referencia.toLowerCase().includes('fatura mercado pago'));
-    if (existingMP) {
-      existingMP.valor = Number(totals.mp.faturaFinal.toFixed(2));
-    } else {
-      nextMonthObj.saidas.push({
-        id: 's_mp_' + Date.now(),
-        data: '6',
-        referencia: 'fatura mercado pago',
-        titulo: 'fatura',
-        valor: Number(totals.mp.faturaFinal.toFixed(2))
-      });
-    }
-  }
-
-  // 2. Atualiza Fatura Nubank no mês seguinte
-  if (totals.nu.faturaFinal > 0) {
-    const existingNu = nextMonthObj.saidas.find(s => s.referencia.toLowerCase().includes('fatura nubank'));
-    if (existingNu) {
-      existingNu.valor = Number(totals.nu.faturaFinal.toFixed(2));
-    } else {
-      nextMonthObj.saidas.push({
-        id: 's_nu_' + Date.now(),
-        data: '13',
-        referencia: 'fatura nubank',
-        titulo: 'fatura',
-        valor: Number(totals.nu.faturaFinal.toFixed(2))
-      });
-    }
-  }
+  syncCardInvoice(nextMonthObj, 'fatura mercado pago', '6', totals.mp);
+  syncCardInvoice(nextMonthObj, 'fatura nubank', '13', totals.nu);
 
   // 3. Atualiza Entradas de quem deve no mês seguinte (Marcos, Isa, Kauã, Alguém, etc.) sem sobrescrever entradas manuais do usuário
   const activeDebtorKeys = new Set();
@@ -813,7 +889,7 @@ window.promptChangeCardDebtor = function(cardKey, itemId, ev) {
 window.editParcelasAnteriores = function(cardKey) {
   const monthObj = getMonthData();
   const card = monthObj.cartoes[cardKey];
-  const input = prompt('Editar valor de Parcelas Anteriores (R$):', card.parcelasAnteriores);
+  const input = prompt('Editar somente o valor manual de Parcelas Anteriores (R$):', Number(card.parcelasAnteriores).toFixed(2).replace('.', ','));
   if (input === null) return;
   const parsed = parseFloat(input.replace('R$', '').replace(/\./g, '').replace(',', '.').trim());
   if (!isNaN(parsed) && parsed >= 0) {
@@ -920,25 +996,32 @@ window.editCardItemInline = function(cardKey, itemId, field, ev) {
   const item = monthObj.cartoes[cardKey].items.find(i => i.id === itemId);
   if (!item) return;
 
-  const input = prompt(`Editar ${field}:`, item[field]);
+  const schedule = item.installmentPlan;
+  const editTotal = field === 'valor' && schedule;
+  const input = prompt(editTotal ? 'Editar valor total da compra (R$):' : `Editar ${field}:`,
+    editTotal ? (schedule.totalCents / 100).toFixed(2).replace('.', ',') : item[field]);
   if (input === null) return;
 
   if (field === 'valor') {
     const parsed = parseFloat(input.replace('R$', '').replace(/\./g, '').replace(',', '.').trim());
-    if (!isNaN(parsed) && parsed >= 0) item.valor = parsed;
+    if (!isNaN(parsed) && parsed >= 0) {
+      if (schedule) setCardPurchaseAmount(item, parsed, schedule.count);
+      else item.valor = parsed;
+    }
   } else {
     item[field] = input.trim() || item[field];
   }
 
-  syncCreditCardsToNextMonth(appState.currentMonth);
+  syncCardPurchaseMonths(appState.currentMonth, cardKey, schedule?.count ?? 1, schedule?.count ?? 1);
   saveToStorage();
   renderAll(itemId);
 };
 
 window.deleteCardItem = function(cardKey, itemId) {
   const monthObj = getMonthData();
+  const item = monthObj.cartoes[cardKey].items.find(i => i.id === itemId);
   monthObj.cartoes[cardKey].items = monthObj.cartoes[cardKey].items.filter(i => i.id !== itemId);
-  syncCreditCardsToNextMonth(appState.currentMonth);
+  syncCardPurchaseMonths(appState.currentMonth, cardKey, item?.installmentPlan?.count ?? 1, 1);
   saveToStorage();
   renderAll();
 };
@@ -2034,7 +2117,7 @@ function renderCartoesTab(monthObj, highlightId) {
   }
 
   // 1. Mercado Pago
-  document.getElementById('mpParcelasAnteriores').textContent = formatBRL(totals.mp.parcelasAnteriores);
+  renderCardInstallmentTotal('mpParcelasAnteriores', 'mpParcelasMes', totals.mp);
   const tbodyMP = document.getElementById('tbodyCardMP');
   tbodyMP.innerHTML = '';
 
@@ -2089,7 +2172,7 @@ function renderCartoesTab(monthObj, highlightId) {
   document.getElementById('mpFaturaFinal').textContent = formatBRL(totals.mp.faturaFinal);
 
   // 2. Nubank
-  document.getElementById('nuParcelasAnteriores').textContent = formatBRL(totals.nu.parcelasAnteriores);
+  renderCardInstallmentTotal('nuParcelasAnteriores', 'nuParcelasMes', totals.nu);
   const tbodyNu = document.getElementById('tbodyCardNubank');
   tbodyNu.innerHTML = '';
 
@@ -3938,22 +4021,22 @@ window.executeSailorActions = function(actions) {
         cardKeys.forEach(ck => {
           if (!mObj.cartoes[ck] || !Array.isArray(mObj.cartoes[ck].items)) return;
           const beforeLen = mObj.cartoes[ck].items.length;
+          let previousCount = 1;
           mObj.cartoes[ck].items = mObj.cartoes[ck].items.filter(item => {
             const refLow = (item.referencia || '').toLowerCase();
             const titLow = (item.titulo || '').toLowerCase();
             const matchByName = targetSearch && (refLow.includes(targetSearch) || titLow === targetSearch);
             const matchByVal = targetVal !== null && !isNaN(targetVal) && Math.abs(Number(item.valor) - targetVal) < 0.01;
-            if (targetSearch && targetVal !== null) {
-              return !(matchByName && matchByVal);
-            }
-            return !(matchByName || matchByVal);
+            const remove = targetSearch && targetVal !== null ? matchByName && matchByVal : matchByName || matchByVal;
+            if (remove) previousCount = Math.max(previousCount, item.installmentPlan?.count ?? 1);
+            return !remove;
           });
           if (mObj.cartoes[ck].items.length !== beforeLen) {
+            syncCardPurchaseMonths(mKey, ck, previousCount, 1);
             totalAffectedMonths.add(mKey);
             if (!targetMonthToShow) targetMonthToShow = mKey;
           }
         });
-        syncCreditCardsToNextMonth(mKey);
       });
       targetView = 'cartoes';
       summaryBadges.push('Gasto do Cartão Removido');
@@ -3962,6 +4045,8 @@ window.executeSailorActions = function(actions) {
     else if (type === 'add_cartao') {
       const val = Number(act.valor);
       if (isNaN(val) || val <= 0) return;
+      const count = Number(act.parcelas ?? 1);
+      if (!Number.isInteger(count) || count < 1 || count > 120) return;
       const cardKey = String(act.cartao || 'nubank').toLowerCase().includes('mercado') ? 'mercadopago' : 'nubank';
       const dayStr = String(act.data || new Date().getDate());
       const cat = String(act.titulo || 'compras').toLowerCase().trim();
@@ -3975,7 +4060,7 @@ window.executeSailorActions = function(actions) {
         const mObj = appState.data[mKey];
         if (!mObj || !mObj.cartoes || !mObj.cartoes[cardKey]) return;
         const newId = `c_${Date.now()}_${idx}_${mIdx}`;
-        mObj.cartoes[cardKey].items.push({
+        const item = {
           id: newId,
           data: dayStr,
           referencia: ref,
@@ -3983,8 +4068,10 @@ window.executeSailorActions = function(actions) {
           valor: Number(val.toFixed(2)),
           isMarcos,
           devedor: debtorName
-        });
-        syncCreditCardsToNextMonth(mKey);
+        };
+        setCardPurchaseAmount(item, val, count);
+        mObj.cartoes[cardKey].items.push(item);
+        syncCardPurchaseMonths(mKey, cardKey, 1, count);
         totalAffectedMonths.add(mKey);
         if (!targetMonthToShow) targetMonthToShow = mKey;
         if (mKey === targetMonthToShow) spotlightRowIds.push(newId);
@@ -4303,7 +4390,13 @@ function tryExecuteSmartCommand(rawText) {
       }
     }
 
-    const multiItems = parseMultiItemsFromCommand(text, true);
+    const installmentMatch = /\bem\s+(\d{1,3})\s*(?:x\b|vezes\b|parcelas\b)/i.exec(text);
+    const count = Number(installmentMatch?.[1] ?? 1);
+    if (count < 1 || count > 120) {
+      addChatBubble('ai', 'Informe uma quantidade de parcelas entre 1 e 120.', 'Parcelas');
+      return true;
+    }
+    const multiItems = installmentMatch ? [] : parseMultiItemsFromCommand(text, true);
     if (multiItems.length > 1) {
       const actions = multiItems.map(it => ({
         type: 'add_cartao',
@@ -4326,7 +4419,9 @@ function tryExecuteSmartCommand(rawText) {
       return true;
     }
 
-    const val = nums[0];
+    const purchaseText = installmentMatch ? text.replace(installmentMatch[0], ' ') : text;
+    const val = installmentMatch ? extractSafeMonetaryValues(purchaseText)[0] : nums[0];
+    if (!(val > 0)) return false;
     const dayM = lower.match(/\bdia\s+(\d{1,2})\b/i);
     const dayStr = dayM ? dayM[1] : String(new Date().getDate());
 
@@ -4336,7 +4431,7 @@ function tryExecuteSmartCommand(rawText) {
     else if (/(parcela|parcelado|livro|\d+\/\d+)/i.test(lower)) cat = 'parcelado';
 
     let ref = extractCleanReferenceName(
-      text.replace(new RegExp(`\\b(?:para\\s+[oa]|pro|pra)\\s+${debtorName}\\b`, 'i'), ' '),
+      purchaseText.replace(new RegExp(`\\b(?:para\\s+[oa]|pro|pra)\\s+${debtorName}\\b`, 'i'), ' '),
       cat === 'uber' ? '-' : (debtorName !== 'Meu' ? `compra ${debtorName.toLowerCase()}` : 'compra')
     );
     if (cat === 'uber' && /^uber$/i.test(ref)) ref = '-';
@@ -4349,6 +4444,7 @@ function tryExecuteSmartCommand(rawText) {
       referencia: ref,
       titulo: cat,
       valor: val,
+      parcelas: count,
       devedor: debtorName
     }]);
 
@@ -5655,7 +5751,7 @@ Exemplos de objetos dentro do array JSON de <SAILOR_ACTIONS>:
 - Adicionar gasto/saída: {"type":"add_saida","months":["ABRIL"],"data":"15","referencia":"internet","titulo":"contas","valor":100,"parcelas":1}
 - Atualizar gasto/saída: {"type":"update_saida","months":["DEZEMBRO"],"target":"faculdade","valor":150}
 - Remover gasto/saída: {"type":"delete_saida","months":["NOVEMBRO"],"target":"uber"}
-- Adicionar no cartão: {"type":"add_cartao","months":["OUTUBRO"],"cartao":"nubank","data":"12","referencia":"pizza","titulo":"compras","valor":60,"devedor":"Marcos"}
+- Adicionar no cartão: {"type":"add_cartao","months":["OUTUBRO"],"cartao":"nubank","data":"12","referencia":"pizza","titulo":"compras","valor":60,"devedor":"Marcos"}. Para uma nova compra parcelada, informe "valor" como o total da compra e "parcelas" como a quantidade, somente quando explícita no pedido.
 - Remover do cartão: {"type":"delete_cartao","months":["OUTUBRO"],"cartao":"nubank","target":"pizza"}
 - Atualizar investimento (com ou sem aporte): {"type":"update_investimento","nome":"nubank 120","aporte":100,"novoValorTotal":181.14}
 - Adicionar novo investimento: {"type":"add_investimento","nome":"CDB Itaú","valor":500}
@@ -6016,6 +6112,7 @@ window.openCardModal = function(cardKey) {
   document.getElementById('inputValor').value = '';
   document.getElementById('inputCustomTitulo').value = '';
   window.selectModalDebtorChoice('meu');
+  showCardInstallmentFields(1);
 
   const lblRef = document.getElementById('labelReferencia');
   const inpRef = document.getElementById('inputReferencia');
@@ -6128,6 +6225,10 @@ window.openEditCardModal = function(cardKey, id) {
 
   document.getElementById('inputReferencia').value = item.referencia || '';
   document.getElementById('inputValor').value = item.valor || '';
+  if (item.installmentPlan) {
+    document.getElementById('inputValor').value = item.installmentPlan.totalCents / 100;
+    showCardInstallmentFields(item.installmentPlan.count);
+  }
   document.getElementById('inputData').value = item.data || '-';
   if (item.titulo) document.getElementById('inputTitulo').value = item.titulo;
   document.getElementById('inputCustomTitulo').value = '';
@@ -6149,7 +6250,18 @@ window.openEditCardModal = function(cardKey, id) {
   document.getElementById('inputReferencia').focus();
 };
 
+function showCardInstallmentFields(count) {
+  const enabled = count != null;
+  const input = document.getElementById('inputCardInstallments');
+  if (!input) return;
+  input.disabled = !enabled;
+  input.value = count ?? 1;
+  document.getElementById('groupCardInstallments').style.display = enabled ? 'flex' : 'none';
+  document.getElementById('labelModalValor').textContent = enabled ? 'Valor total da compra (R$)' : 'Valor (R$)';
+}
+
 function closeModal() {
+  showCardInstallmentFields(null);
   document.getElementById('modalBackdrop').classList.add('hidden');
 }
 
@@ -6628,6 +6740,8 @@ function startMagicApp() {
       renderAll(newId);
     } else if (type.startsWith('card_')) {
       const cardKey = type.replace('card_', '');
+      const count = Number(document.getElementById('inputCardInstallments')?.value ?? 1);
+      if (!Number.isInteger(count) || count < 1 || count > 120) return;
       const isCheckDebtor = document.getElementById('inputIsMarcos').checked;
       const debtorInput = (document.getElementById('inputDebtorName')?.value || '').trim();
       const debtorName = isCheckDebtor ? (debtorInput || 'Marcos') : null;
@@ -6638,13 +6752,15 @@ function startMagicApp() {
         const editId = parts.length > 1 ? parts.slice(1).join(':') : parts[0];
         const item = monthObj.cartoes?.[cardKey]?.items?.find(c => c.id === editId);
         if (item) {
+          const previousCount = item.installmentPlan?.count ?? 1;
           item.referencia = ref;
-          item.valor = Number(val.toFixed(2));
+          if (item.installmentPlan) setCardPurchaseAmount(item, val, count);
+          else item.valor = Number(val.toFixed(2));
           item.data = dataPag;
           item.titulo = titulo;
           item.devedor = debtorName;
           item.isMarcos = isMarcos;
-          syncCreditCardsToNextMonth(appState.currentMonth);
+          syncCardPurchaseMonths(appState.currentMonth, cardKey, previousCount, item.installmentPlan?.count ?? 1);
           saveToStorage();
           closeModal();
           renderAll(editId);
@@ -6653,8 +6769,10 @@ function startMagicApp() {
         }
       }
       const newId = 'c_' + Date.now();
-      monthObj.cartoes[cardKey].items.push({ id: newId, data: dataPag, referencia: ref, titulo, valor: val, isMarcos, devedor: debtorName });
-      syncCreditCardsToNextMonth(appState.currentMonth);
+      const item = { id: newId, data: dataPag, referencia: ref, titulo, isMarcos, devedor: debtorName };
+      setCardPurchaseAmount(item, val, count);
+      monthObj.cartoes[cardKey].items.push(item);
+      syncCardPurchaseMonths(appState.currentMonth, cardKey, 1, count);
       saveToStorage();
       closeModal();
       renderAll(newId);

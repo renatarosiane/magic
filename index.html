@@ -477,7 +477,7 @@
               </div>
 
               <div class="parcelas-anteriores-bar">
-                <span><strong>parcelas anteriores</strong> (fatura):</span>
+                <span><strong>parcelas anteriores</strong> <span id="mpParcelasMes"> (fatura)</span>:</span>
                 <strong class="editable-cell" id="mpParcelasAnteriores" onclick="editParcelasAnteriores('mercadopago')" title="Clique para editar">R$ 0,00</strong>
               </div>
 
@@ -513,7 +513,7 @@
                   <strong id="mpTotalMeu">R$ 0,00</strong>
                 </div>
                 <div class="invoice-row row-fatura-final">
-                  <span>Fatura Final (parcelas ant. + gasto mês)</span>
+                  <span>Fatura Final a pagar</span>
                   <strong id="mpFaturaFinal">R$ 0,00</strong>
                 </div>
               </div>
@@ -532,7 +532,7 @@
               </div>
 
               <div class="parcelas-anteriores-bar">
-                <span><strong>parcelas anteriores</strong> (fatura):</span>
+                <span><strong>parcelas anteriores</strong> <span id="nuParcelasMes"> (fatura)</span>:</span>
                 <strong class="editable-cell" id="nuParcelasAnteriores" onclick="editParcelasAnteriores('nubank')" title="Clique para editar">R$ 0,00</strong>
               </div>
 
@@ -568,7 +568,7 @@
                   <strong id="nuTotalMeu">R$ 0,00</strong>
                 </div>
                 <div class="invoice-row row-fatura-final">
-                  <span>Fatura Final (parcelas ant. + gasto mês)</span>
+                  <span>Fatura Final a pagar</span>
                   <strong id="nuFaturaFinal">R$ 0,00</strong>
                 </div>
               </div>
@@ -886,8 +886,13 @@
           </div>
         </div>
         <div class="form-group">
-          <label for="inputValor">Valor (R$)</label>
+          <label for="inputValor" id="labelModalValor">Valor (R$)</label>
           <input type="number" id="inputValor" step="0.01" min="0" placeholder="0,00" required />
+        </div>
+        <div class="form-group" id="groupCardInstallments" style="display:none">
+          <label for="inputCardInstallments">Quantidade de parcelas</label>
+          <input type="number" id="inputCardInstallments" min="1" max="120" step="1" value="1" disabled />
+          <small>Use 1 para uma compra à vista. A primeira cobrança vai para o mês seguinte.</small>
         </div>
         <div class="modal-actions">
           <button type="button" id="btnCancelModal" class="btn-pastel btn-secondary">Cancelar</button>
