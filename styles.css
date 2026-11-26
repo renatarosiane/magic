@@ -3186,3 +3186,47 @@ body.dark-theme .magic-calendar-footer { border-color: #713552; }
   .account-card-controls { justify-content:flex-start; }
 }
 .account-card-manual { white-space:nowrap; flex-shrink:0; }
+#view-cartoes .account-card-controls {
+  gap:8px;
+  padding:5px;
+  border:1px solid rgba(236,72,153,.16);
+  border-radius:16px;
+  background:rgba(255,255,255,.35);
+}
+#view-cartoes .account-card-action {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  min-height:40px;
+  padding:9px 12px;
+  border:1px solid rgba(219,39,119,.18);
+  border-radius:11px;
+  background:rgba(255,255,255,.65);
+  color:#9d174d;
+  font-family:inherit;
+  font-size:.77rem;
+  font-weight:600;
+  cursor:pointer;
+  transition:background .16s, border-color .16s, box-shadow .16s;
+}
+#view-cartoes .account-card-action svg { width:15px; height:15px; flex-shrink:0; }
+#view-cartoes .account-card-action:hover { border-color:#ec4899; background:#fce7f3; }
+#view-cartoes .account-card-action:focus-visible { outline:2px solid #ec4899; outline-offset:3px; }
+#view-cartoes .account-card-action-primary {
+  color:#fff;
+  background:linear-gradient(135deg,#ec4899,#be185d);
+  border-color:transparent;
+  box-shadow:0 4px 12px rgba(190,24,93,.18);
+}
+#view-cartoes .account-card-action-primary:hover { background:#be185d; }
+#view-cartoes .card-header { gap:16px; flex-wrap:wrap; border-radius:18px; padding:16px; }
+#view-cartoes .card-title-group h2 { letter-spacing:.01em; font-size:1rem; }
+body.dark-theme #view-cartoes .account-card-controls { background:rgba(37,17,31,.6); border-color:rgba(244,114,182,.2); }
+body.dark-theme #view-cartoes .account-card-action { color:#fbcfe8; background:#3b2033; border-color:#65344f; }
+body.dark-theme #view-cartoes .account-card-action:hover { background:#542c44; border-color:#f472b6; }
+body.dark-theme #view-cartoes .account-card-action-primary { color:#fff; background:linear-gradient(135deg,#db2777,#a21caf); border-color:transparent; }
+@media(max-width:600px) {
+  #view-cartoes .account-card-controls { width:100%; justify-content:stretch; }
+  #view-cartoes .account-card-action { flex:1; padding:10px 8px; min-height:44px; }
+}

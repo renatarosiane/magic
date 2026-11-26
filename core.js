@@ -45,6 +45,14 @@ export function validateSnapshot(value) {
   }
   if (value.preferences?.people !== undefined && (!Array.isArray(value.preferences.people)
     || value.preferences.people.some(name => !text(name) || !name.trim()))) throw new Error('Nome de pessoa inválido.');
+  if (value.preferences?.peopleByMonth !== undefined) {
+    const months = value.preferences.peopleByMonth;
+    if (!months || typeof months !== 'object' || Array.isArray(months)) throw new Error('Lista mensal de pessoas inválida.');
+    for (const [month, names] of Object.entries(months)) {
+      if (!Object.hasOwn(value.data, month) || !Array.isArray(names)
+        || names.some(name => !text(name) || !name.trim())) throw new Error('Lista mensal de pessoas inválida.');
+    }
+  }
   for (const item of value.dailyInvestments) {
     if (!id(item.id) || !text(item.nome)) throw new Error('Investimento inválido.');
     money(item, 'valor');

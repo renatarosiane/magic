@@ -122,7 +122,7 @@ async function boot(payload) {
   document.body.classList.remove('cloud-locked');
   if (!started) {
     const script = document.createElement('script');
-    script.src = './app.js?v=account_cards_v1';
+    script.src = './app.js?v=account_cards_v2';
     await new Promise((resolve, reject) => { script.onload = resolve; script.onerror = reject; document.body.appendChild(script); });
     window.MagicApp.start();
     started = true;
@@ -320,3 +320,4 @@ try {
   $('cloudSignup').disabled = true;
   $('cloudForgot').disabled = true;
 }
+

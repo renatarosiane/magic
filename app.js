@@ -250,6 +250,7 @@ appState = {
   chatHistoryLog: loadChatHistoryLog(),
   cardSettings: structuredClone(window.MAGIC_BOOTSTRAP.payload.preferences?.cardSettings || {}),
   people: structuredClone(window.MAGIC_BOOTSTRAP.payload.preferences?.people || []),
+  peopleByMonth: structuredClone(window.MAGIC_BOOTSTRAP.payload.preferences?.peopleByMonth || {}),
   chatMemory: loadChatMemory()
 };
 
@@ -273,6 +274,7 @@ function magicSnapshot() {
     chatHistoryLog: appState.chatHistoryLog, chatMemory: appState.chatMemory,
     preferences: { ...window.MAGIC_BOOTSTRAP.payload.preferences,
       cardSettings: structuredClone(appState.cardSettings), people: structuredClone(appState.people),
+      peopleByMonth: structuredClone(appState.peopleByMonth || {}),
       currentMonth: appState.currentMonth, currentView: appState.currentView,
       theme: document.body.classList.contains('dark-theme') ? 'dark' : 'light' } };
 }
@@ -570,8 +572,8 @@ function ensureAccountCard(key) {
 }
 function accountPeople() {
   const people = new Map();
-  for (const name of appState.people || []) people.set(name.toLowerCase(), name);
-  for (const month of Object.values(appState.data)) {
+  for (const name of appState.peopleByMonth?.[appState.currentMonth] || []) people.set(name.toLowerCase(), name);
+  for (const month of [appState.data[appState.currentMonth] || {}]) {
     for (const card of Object.values(month.cartoes || {})) {
       for (const item of card.items) {
         const name = getItemDebtor(item);
@@ -583,8 +585,10 @@ function accountPeople() {
 }
 function rememberAccountPerson(name) {
   const clean = name.trim().slice(0, 80);
-  if (clean && clean.toLowerCase() !== 'meu' && !appState.people.some(person => person.toLowerCase() === clean.toLowerCase())) {
-    appState.people.push(clean);
+  appState.peopleByMonth ||= {};
+  const people = appState.peopleByMonth[appState.currentMonth] ||= [];
+  if (clean && clean.toLowerCase() !== 'meu' && !people.some(person => person.toLowerCase() === clean.toLowerCase())) {
+    people.push(clean);
   }
 }
 function renderAccountPeopleChoices(selected = 'meu') {
@@ -643,10 +647,10 @@ window.manageAccountPeople = function() {
   const dialog = document.createElement('dialog');
   dialog.className = 'modal-card card-pastel account-people-dialog';
   const title = document.createElement('h3');
-  title.textContent = 'Pessoas desta conta';
+  title.textContent = 'Pessoas de ' + getMonthLabel(appState.currentMonth);
   dialog.append(title);
   const note = document.createElement('p');
-  note.textContent = 'Os nomes salvos ajudam no próximo cadastro. O nome de cada compra anterior permanece no histórico.';
+  note.textContent = 'Os nomes desta lista ficam disponíveis para novos gastos neste mês.';
   dialog.append(note);
   for (const name of accountPeople()) {
     const row = document.createElement('div');
@@ -658,7 +662,8 @@ window.manageAccountPeople = function() {
     edit.onclick = () => {
       const next = prompt('Novo nome para próximos gastos', name)?.trim().slice(0, 80);
       if (!next || next.toLowerCase() === 'meu') return;
-      appState.people = appState.people.filter(person => person !== name);
+      appState.peopleByMonth ||= {};
+      appState.peopleByMonth[appState.currentMonth] = (appState.peopleByMonth[appState.currentMonth] || []).filter(person => person !== name);
       rememberAccountPerson(next);
       saveToStorage(); dialog.close(); renderAll(); window.manageAccountPeople();
     };
@@ -2236,6 +2241,17 @@ function renderCartoesTab(monthObj, highlightId) {
     if (config.archived) controls.append(button('Restaurar', () => window.restoreAccountCard(key)));
     else controls.append(button('+ Novo gasto', () => window.openCardModal(key)),
       button('Renomear', () => window.renameAccountCard(key)), button('Arquivar', () => window.archiveAccountCard(key)));
+    const icons = { '+ Novo gasto': 'plus', Renomear: 'pencil', Arquivar: 'archive', Restaurar: 'rotate-ccw' };
+    for (const control of controls.children) {
+      const label = control.textContent;
+      control.className = 'account-card-action' + (label === '+ Novo gasto' ? ' account-card-action-primary' : '');
+      const icon = document.createElement('i');
+      icon.dataset.lucide = icons[label];
+      icon.setAttribute('aria-hidden', 'true');
+      const text = document.createElement('span');
+      text.textContent = label.replace(/^\+\s*/, '');
+      control.replaceChildren(icon, text);
+    }
     panel.querySelector('.account-card-manual').onclick = () => {
       ensureAccountCard(key); window.editParcelasAnteriores(key);
     };
@@ -2278,6 +2294,7 @@ function renderCartoesTab(monthObj, highlightId) {
     }
     host.append(panel);
   }
+  if (window.lucide) lucide.createIcons();
 }
 
 
@@ -6964,6 +6981,7 @@ function startMagicApp() {
           appState.data = mergeSavedDataWithDefaults(imported.data);
           if (imported.preferences?.cardSettings) appState.cardSettings = structuredClone(imported.preferences.cardSettings);
           if (Array.isArray(imported.preferences?.people)) appState.people = structuredClone(imported.preferences.people);
+          if (imported.preferences?.peopleByMonth) appState.peopleByMonth = structuredClone(imported.preferences.peopleByMonth);
           if (Array.isArray(imported.yieldHistory)) appState.yieldHistory = imported.yieldHistory;
           saveToStorage();
           renderAll();
@@ -7129,6 +7147,7 @@ window.MagicApp = {
     const prefs = payload.preferences || {};
     appState.cardSettings = structuredClone(prefs.cardSettings || {});
     appState.people = structuredClone(prefs.people || []);
+    appState.peopleByMonth = structuredClone(prefs.peopleByMonth || {});
     if (prefs.currentMonth && appState.data[prefs.currentMonth]) appState.currentMonth = prefs.currentMonth;
     if (['planilha','cartoes','investimentos'].includes(prefs.currentView)) {
       appState.currentView = prefs.currentView;
