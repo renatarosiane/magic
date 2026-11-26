@@ -3173,3 +3173,16 @@ body.dark-theme .magic-calendar-head select, body.dark-theme .magic-calendar-hea
 body.dark-theme .magic-calendar button:hover:not(:disabled) { background: #713552; }
 body.dark-theme .magic-calendar-days .is-selected, body.dark-theme .magic-calendar-days .is-selected:hover { background: #DB2777; color: #FFF; }
 body.dark-theme .magic-calendar-footer { border-color: #713552; }
+.account-card-toolbar, .account-card-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.account-card-toolbar { margin:16px 0; }
+.account-card-controls { justify-content:flex-end; }
+.account-card-controls button { min-height:36px; }
+.account-people-dialog { margin:auto; max-height:85dvh; overflow:auto; color:var(--text-main); }
+.account-people-dialog::backdrop { background:rgba(35,15,29,.7); }
+.account-people-dialog p { margin:12px 0; color:var(--text-muted); }
+.account-people-dialog > button { margin:12px 8px 0 0; }
+@media(max-width:600px) {
+  #view-cartoes .card-header { align-items:flex-start; flex-direction:column; gap:12px; }
+  .account-card-controls { justify-content:flex-start; }
+}
+.account-card-manual { white-space:nowrap; flex-shrink:0; }

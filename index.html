@@ -14,7 +14,7 @@
   <script src="vendor/chartjs-plugin-datalabels.js"></script>
   <!-- Lucide Icons -->
   <script src="vendor/lucide.js"></script>
-  <link rel="stylesheet" href="styles.css?v=dark_replenish_btn_v29" />
+  <link rel="stylesheet" href="styles.css?v=account_cards_v1" />
   <link rel="stylesheet" href="cloud.css" />
   <link rel="manifest" href="manifest.webmanifest" />
   <meta name="theme-color" content="#DB2777" />
@@ -106,7 +106,7 @@
         </button>
         <button type="button" class="view-tab" data-view="cartoes">
           <i data-lucide="credit-card"></i>
-          <span>Cartões (MP & Nubank)</span>
+          <span>Cartões de crédito</span>
         </button>
         <button type="button" class="view-tab" data-view="investimentos">
           <i data-lucide="trending-up"></i>
@@ -356,7 +356,7 @@
                 </div>
               </div>
 
-              <p class="daily-helper-text">💳 Inclui as saídas do mês (com a "fatura" paga neste mês, referente ao cartão do mês anterior) + as compras feitas no cartão neste mês (Mercado Pago + Nubank), sem os gastos do Marcos.</p>
+              <p class="daily-helper-text">💳 Inclui as saídas do mês (com a "fatura" paga neste mês, referente ao cartão do mês anterior) + as compras feitas nos seus cartões neste mês, considerando a opção Meu.</p>
 
               <div class="table-wrapper">
                 <table class="pastel-table" id="tableDinamica">
@@ -397,18 +397,18 @@
                 <h3>Compras no Cartão em <span id="lblCardSpendMonth">OUTUBRO</span> ➔ Pagamento na Fatura de <span id="lblCardPayMonth">NOVEMBRO</span></h3>
                 <p>
                   Tudo o que você lançar abaixo atualiza automaticamente as faturas nas <strong>Saídas de <span class="lblCardPayMonthText">NOVEMBRO</span></strong>.
-                  Os itens marcados com a tag <strong>M (Marcos)</strong> são somados e adicionados automaticamente nas <strong>Entradas de <span class="lblCardPayMonthText">NOVEMBRO</span></strong>!
+                  Os gastos atribuídos a outra pessoa são somados e adicionados automaticamente nas <strong>Entradas de <span class="lblCardPayMonthText">NOVEMBRO</span></strong>!
                 </p>
               </div>
             </div>
             <div class="sync-banner-kpis">
               <div class="mini-sync-box box-mp">
-                <span>Fatura Total (MP + Nubank)</span>
+                <span>Fatura total</span>
                 <strong id="cardBannerTotalFaturas">R$ 0,00</strong>
                 <small>Vai p/ Saídas de <span class="lblCardPayMonthText">NOVEMBRO</span></small>
               </div>
               <div class="mini-sync-box box-marcos">
-                <span id="cardBannerDebtorsTitle">Total a Cobrar (MP + Nubank)</span>
+                <span id="cardBannerDebtorsTitle">Total a cobrar</span>
                 <strong id="cardBannerTotalMarcos">R$ 0,00</strong>
                 <small id="cardBannerDebtorsSub">Vai p/ Entradas de <span class="lblCardPayMonthText">NOVEMBRO</span></small>
               </div>
@@ -446,14 +446,12 @@
               <div class="filter-block">
                 <span class="filter-label"><i data-lucide="users"></i> Divisão:</span>
                 <div class="filter-chips" id="chipsCardMarcos">
-                  <button type="button" class="chip-filter active" data-marcos="all">Todos (Meu + Marcos)</button>
+                  <button type="button" class="chip-filter active" data-marcos="all">Todos</button>
                   <button type="button" class="chip-filter" data-marcos="meu">Apenas Meu</button>
-                  <button type="button" class="chip-filter" data-marcos="marcos">Apenas Marcos (M)</button>
                 </div>
-                <select id="filterCardMarcos" class="pastel-filter-select" aria-label="Filtrar por Marcos nos Cartões" style="display:none;">
-                  <option value="all">Todos (Meu + Marcos)</option>
+                <select id="filterCardMarcos" class="pastel-filter-select" aria-label="Filtrar por pessoa" style="display:none;">
+                  <option value="all">Todos</option>
                   <option value="meu">Apenas Meu</option>
-                  <option value="marcos">Apenas Marcos</option>
                 </select>
               </div>
             </div>
@@ -463,117 +461,12 @@
             </div>
           </div>
 
-          <div class="cards-two-col">
-            <!-- Cartão 1: CRÉDITO MERCADO PAGO -->
-            <div class="card-pastel section-card">
-              <div class="card-header header-mp-yellow">
-                <div class="card-title-group">
-                  <i data-lucide="credit-card"></i>
-                  <h2>crédito MERCADO PAGO</h2>
-                </div>
-                <button class="btn-icon-add" onclick="openCardModal('mercadopago')">
-                  <i data-lucide="plus"></i> Novo Gasto MP
-                </button>
-              </div>
-
-              <div class="parcelas-anteriores-bar">
-                <span><strong>parcelas anteriores</strong> <span id="mpParcelasMes"> (fatura)</span>:</span>
-                <strong class="editable-cell" id="mpParcelasAnteriores" onclick="editParcelasAnteriores('mercadopago')" title="Clique para editar">R$ 0,00</strong>
-              </div>
-
-              <div class="table-wrapper saidas-scroll">
-                <table class="pastel-table">
-                  <thead>
-                    <tr>
-                      <th class="text-center">data</th>
-                      <th>referência</th>
-                      <th>título</th>
-                      <th class="text-center" title="Quem paga este gasto? (Meu ou cobrar de alguém)">Quem deve?</th>
-                      <th class="text-right">valor</th>
-                      <th class="col-actions"></th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbodyCardMP"></tbody>
-                </table>
-              </div>
-
-              <div class="card-invoice-footer">
-                <div class="invoice-row">
-                  <span>total gasto esse mês</span>
-                  <strong id="mpTotalMes">R$ 0,00</strong>
-                </div>
-                <div id="mpDebtorsFooterList">
-                  <div class="invoice-row row-marcos-highlight">
-                    <span>marcos (vai p/ entrada do mês seguinte)</span>
-                    <strong id="mpTotalMarcos">R$ 0,00</strong>
-                  </div>
-                </div>
-                <div class="invoice-row">
-                  <span>meu (gasto próprio)</span>
-                  <strong id="mpTotalMeu">R$ 0,00</strong>
-                </div>
-                <div class="invoice-row row-fatura-final">
-                  <span>Fatura Final a pagar</span>
-                  <strong id="mpFaturaFinal">R$ 0,00</strong>
-                </div>
-              </div>
-            </div>
-
-            <!-- Cartão 2: CRÉDITO NUBANK -->
-            <div class="card-pastel section-card">
-              <div class="card-header header-nubank-purple">
-                <div class="card-title-group">
-                  <i data-lucide="credit-card"></i>
-                  <h2>crédito NUBANK</h2>
-                </div>
-                <button class="btn-icon-add" onclick="openCardModal('nubank')">
-                  <i data-lucide="plus"></i> Novo Gasto Nubank
-                </button>
-              </div>
-
-              <div class="parcelas-anteriores-bar">
-                <span><strong>parcelas anteriores</strong> <span id="nuParcelasMes"> (fatura)</span>:</span>
-                <strong class="editable-cell" id="nuParcelasAnteriores" onclick="editParcelasAnteriores('nubank')" title="Clique para editar">R$ 0,00</strong>
-              </div>
-
-              <div class="table-wrapper saidas-scroll">
-                <table class="pastel-table">
-                  <thead>
-                    <tr>
-                      <th class="text-center">data</th>
-                      <th>referência</th>
-                      <th>título</th>
-                      <th class="text-center" title="Quem paga este gasto? (Meu, Marcos ou outra pessoa)">Quem deve?</th>
-                      <th class="text-right">valor</th>
-                      <th class="col-actions"></th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbodyCardNubank"></tbody>
-                </table>
-              </div>
-
-              <div class="card-invoice-footer">
-                <div class="invoice-row">
-                  <span>total gasto esse mês</span>
-                  <strong id="nuTotalMes">R$ 0,00</strong>
-                </div>
-                <div id="nuDebtorsFooterList">
-                  <div class="invoice-row row-marcos-highlight">
-                    <span>marcos (vai p/ entrada do mês seguinte)</span>
-                    <strong id="nuTotalMarcos">R$ 0,00</strong>
-                  </div>
-                </div>
-                <div class="invoice-row">
-                  <span>meu (gasto próprio)</span>
-                  <strong id="nuTotalMeu">R$ 0,00</strong>
-                </div>
-                <div class="invoice-row row-fatura-final">
-                  <span>Fatura Final a pagar</span>
-                  <strong id="nuFaturaFinal">R$ 0,00</strong>
-                </div>
-              </div>
-            </div>
+          <div class="account-card-toolbar">
+            <button type="button" class="btn-pastel btn-primary" onclick="addAccountCard()">+ Adicionar cartão</button>
+            <button type="button" class="btn-pastel btn-secondary" onclick="manageAccountPeople()">Pessoas desta conta</button>
+            <label><input type="checkbox" onchange="appState.showArchivedCards=this.checked;renderAll()" /> Mostrar cartões arquivados</label>
           </div>
+          <div class="cards-two-col"></div>
         </div>
 
         <!-- =================================================================== -->
@@ -877,12 +770,11 @@
           <input type="checkbox" id="inputIsMarcos" style="display:none;" />
           <div class="debtor-modal-choices" id="modalDebtorChoices">
             <button type="button" class="debtor-choice-pill active" data-choice="meu" onclick="selectModalDebtorChoice('meu')">Meu</button>
-            <button type="button" class="debtor-choice-pill" data-choice="marcos" onclick="selectModalDebtorChoice('marcos')">Marcos</button>
-            <button type="button" class="debtor-choice-pill" data-choice="alguem" onclick="selectModalDebtorChoice('alguem')">Alguém (editar nome)</button>
+            <button type="button" class="debtor-choice-pill" data-choice="alguem" onclick="selectModalDebtorChoice('other')">+ Outra pessoa</button>
           </div>
           <div id="wrapDebtorName" style="display:none; margin-top:4px;">
-            <label for="inputDebtorName" style="font-size:0.78rem; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Nome de quem te deve (vai aparecer nas Entradas do mês seguinte):</label>
-            <input type="text" id="inputDebtorName" placeholder="Digite o nome (ex: Fulano, Isa, Alguém...)" value="Alguém" style="width:100%; padding:8px 12px; border-radius:var(--radius-pill); border:1.5px solid rgba(111,66,193,0.28); font-family:inherit; font-size:0.85rem; outline:none;" />
+            <label for="inputDebtorName" style="font-size:0.78rem; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Nome da pessoa (aparece nas entradas do mês seguinte):</label>
+            <input type="text" id="inputDebtorName" placeholder="Digite o nome" value="" style="width:100%; padding:8px 12px; border-radius:var(--radius-pill); border:1.5px solid rgba(111,66,193,0.28); font-family:inherit; font-size:0.85rem; outline:none;" />
           </div>
         </div>
         <div class="form-group">
@@ -904,6 +796,6 @@
 
   <script src="vendor/supabase.js"></script>
   <script src="config.js"></script>
-  <script type="module" src="cloud.js"></script>
+  <script type="module" src="cloud.js?v=account_cards_v1"></script>
 </body>
 </html>

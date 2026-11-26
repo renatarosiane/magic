@@ -195,12 +195,7 @@ function mergeSavedDataWithDefaults(savedData) {
 
     // Preserva fielmente os cartões do usuário
     if (savedData[m].cartoes) {
-      if (savedData[m].cartoes.mercadopago) {
-        base[m].cartoes.mercadopago = savedData[m].cartoes.mercadopago;
-      }
-      if (savedData[m].cartoes.nubank) {
-        base[m].cartoes.nubank = savedData[m].cartoes.nubank;
-      }
+      Object.assign(base[m].cartoes, savedData[m].cartoes);
     }
 
     if (savedData[m].investimentoTotalPlanilha !== undefined) {
@@ -253,6 +248,8 @@ appState = {
   dailyInvestments: loadDailyInvestments(),
   yieldHistory: loadYieldHistory(),
   chatHistoryLog: loadChatHistoryLog(),
+  cardSettings: structuredClone(window.MAGIC_BOOTSTRAP.payload.preferences?.cardSettings || {}),
+  people: structuredClone(window.MAGIC_BOOTSTRAP.payload.preferences?.people || []),
   chatMemory: loadChatMemory()
 };
 
@@ -275,6 +272,7 @@ function magicSnapshot() {
     dailyInvestments: appState.dailyInvestments, yieldHistory: appState.yieldHistory,
     chatHistoryLog: appState.chatHistoryLog, chatMemory: appState.chatMemory,
     preferences: { ...window.MAGIC_BOOTSTRAP.payload.preferences,
+      cardSettings: structuredClone(appState.cardSettings), people: structuredClone(appState.people),
       currentMonth: appState.currentMonth, currentView: appState.currentView,
       theme: document.body.classList.contains('dark-theme') ? 'dark' : 'light' } };
 }
@@ -556,74 +554,163 @@ function calculateCardInstallments(monthName, cardKey) {
   return { first, carried };
 }
 
-function calculateCardTotals(monthName = appState.currentMonth) {
-  const monthObj = appState.data[monthName];
-  if (!monthObj || !monthObj.cartoes) {
-    return {
-      mp: { parcelasAnteriores: 0, gastoMes: 0, marcos: 0, totalDebtors: 0, meu: 0, faturaFinal: 0, installments: { first: 0, carried: 0 } },
-      nu: { parcelasAnteriores: 0, gastoMes: 0, marcos: 0, totalDebtors: 0, meu: 0, faturaFinal: 0, installments: { first: 0, carried: 0 } },
-      totalFaturas: 0,
-      totalMarcos: 0,
-      totalDebtors: 0,
-      totalMeu: 0,
-      debtors: {}
-    };
+function accountCardKeys() {
+  const keys = new Set(['mercadopago', 'nubank', ...Object.keys(appState.cardSettings || {})]);
+  for (const month of Object.values(appState.data)) for (const key of Object.keys(month.cartoes || {})) keys.add(key);
+  return [...keys].filter(key => /^(mercadopago|nubank|card_[a-z0-9-]+)$/.test(key));
+}
+function cardDisplayName(key) {
+  return appState.cardSettings?.[key]?.name || ({ mercadopago: 'Mercado Pago', nubank: 'Nubank' })[key] || 'Cartão';
+}
+function ensureAccountCard(key) {
+  for (const month of Object.values(appState.data)) {
+    month.cartoes ||= {};
+    month.cartoes[key] ||= { parcelasAnteriores: 0, items: [] };
   }
-  const mp = monthObj.cartoes.mercadopago || { items: [], parcelasAnteriores: 0 };
-  const nu = monthObj.cartoes.nubank || { items: [], parcelasAnteriores: 0 };
-  const mpInstallments = calculateCardInstallments(monthName, 'mercadopago');
-  const nuInstallments = calculateCardInstallments(monthName, 'nubank');
-
-  const debtors = {};
-
-  let mpGastoMes = 0;
-  let mpTotalDebtors = 0;
-  mp.items.forEach(i => {
-    const v = Number(i.valor) || 0;
-    mpGastoMes += v;
-    const debtor = getItemDebtor(i);
-    if (debtor) {
-      const key = debtor.toLowerCase();
-      if (!debtors[key]) debtors[key] = { name: debtor, mp: 0, nu: 0, total: 0 };
-      debtors[key].mp += v;
-      debtors[key].total += v;
-      mpTotalDebtors += v;
+}
+function accountPeople() {
+  const people = new Map();
+  for (const name of appState.people || []) people.set(name.toLowerCase(), name);
+  for (const month of Object.values(appState.data)) {
+    for (const card of Object.values(month.cartoes || {})) {
+      for (const item of card.items) {
+        const name = getItemDebtor(item);
+        if (name) people.set(name.toLowerCase(), name);
+      }
     }
+  }
+  return [...people.values()];
+}
+function rememberAccountPerson(name) {
+  const clean = name.trim().slice(0, 80);
+  if (clean && clean.toLowerCase() !== 'meu' && !appState.people.some(person => person.toLowerCase() === clean.toLowerCase())) {
+    appState.people.push(clean);
+  }
+}
+function renderAccountPeopleChoices(selected = 'meu') {
+  const container = document.getElementById('modalDebtorChoices');
+  container.replaceChildren();
+  for (const name of ['meu', ...accountPeople(), 'other']) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'debtor-choice-pill' + (selected === name ? ' active' : '');
+    button.textContent = name === 'meu' ? 'Meu' : name === 'other' ? '+ Outra pessoa' : name;
+    button.onclick = () => window.selectModalDebtorChoice(name);
+    container.append(button);
+  }
+}
+function syncAccountCardInvoice(month, key, total) {
+  if (key === 'mercadopago' || key === 'nubank') {
+    syncCardInvoice(month, key === 'nubank' ? 'fatura nubank' : 'fatura mercado pago', key === 'nubank' ? '13' : '6', total);
+    return;
+  }
+  const previous = month.saidas.find(item => item.cardId === key && item.isCardInvoice);
+  const cents = Math.round(total.faturaFinal * 100);
+  if (previous) previous.valor = cents / 100;
+  else if (cents > 0) month.saidas.push({
+    id: 's_card_' + crypto.randomUUID(), data: String(appState.cardSettings[key]?.dueDay || 13),
+    referencia: 'fatura ' + cardDisplayName(key), titulo: 'fatura', valor: cents / 100, cardId: key, isCardInvoice: true
   });
-  const mpMeu = mpGastoMes - mpTotalDebtors;
-  const mpManual = Number(mp.parcelasAnteriores) || 0;
-  const mpFaturaFinal = mpManual + mpGastoMes + mpInstallments.carried / 100;
-
-  let nuGastoMes = 0;
-  let nuTotalDebtors = 0;
-  nu.items.forEach(i => {
-    const v = Number(i.valor) || 0;
-    nuGastoMes += v;
-    const debtor = getItemDebtor(i);
-    if (debtor) {
-      const key = debtor.toLowerCase();
-      if (!debtors[key]) debtors[key] = { name: debtor, mp: 0, nu: 0, total: 0 };
-      debtors[key].nu += v;
-      debtors[key].total += v;
-      nuTotalDebtors += v;
-    }
-  });
-  const nuMeu = nuGastoMes - nuTotalDebtors;
-  const nuManual = Number(nu.parcelasAnteriores) || 0;
-  const nuFaturaFinal = nuManual + nuGastoMes + nuInstallments.carried / 100;
-
-  const totalDebtorsAmount = mpTotalDebtors + nuTotalDebtors;
-  const marcosTotal = debtors['marcos'] ? debtors['marcos'].total : 0;
-
-  return {
-    mp: { parcelasAnteriores: mpManual + (mpInstallments.first + mpInstallments.carried) / 100, gastoMes: mpGastoMes, marcos: mpTotalDebtors, totalDebtors: mpTotalDebtors, meu: mpMeu, faturaFinal: mpFaturaFinal, installments: mpInstallments },
-    nu: { parcelasAnteriores: nuManual + (nuInstallments.first + nuInstallments.carried) / 100, gastoMes: nuGastoMes, marcos: nuTotalDebtors, totalDebtors: nuTotalDebtors, meu: nuMeu, faturaFinal: nuFaturaFinal, installments: nuInstallments },
-    totalFaturas: mpFaturaFinal + nuFaturaFinal,
-    totalMarcos: marcosTotal,
-    totalDebtors: totalDebtorsAmount,
-    totalMeu: mpMeu + nuMeu,
-    debtors
+}
+window.addAccountCard = function() {
+  const name = prompt('Nome do cartão');
+  if (!name?.trim()) return;
+  const key = 'card_' + crypto.randomUUID();
+  appState.cardSettings[key] = { name: name.trim().slice(0, 80), archived: false };
+  ensureAccountCard(key);
+  saveToStorage();
+  renderAll();
+};
+window.renameAccountCard = function(key) {
+  const name = prompt('Nome do cartão', cardDisplayName(key));
+  if (!name?.trim()) return;
+  appState.cardSettings[key] = { ...appState.cardSettings[key], name: name.trim().slice(0, 80) };
+  saveToStorage();
+  renderAll();
+};
+window.archiveAccountCard = function(key) {
+  if (!confirm('Arquivar ' + cardDisplayName(key) + '? As compras e faturas continuarão no histórico.')) return;
+  appState.cardSettings[key] = { ...appState.cardSettings[key], name: cardDisplayName(key), archived: true };
+  saveToStorage();
+  renderAll();
+};
+window.restoreAccountCard = function(key) {
+  appState.cardSettings[key] = { ...appState.cardSettings[key], archived: false };
+  saveToStorage();
+  renderAll();
+};
+window.manageAccountPeople = function() {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'modal-card card-pastel account-people-dialog';
+  const title = document.createElement('h3');
+  title.textContent = 'Pessoas desta conta';
+  dialog.append(title);
+  const note = document.createElement('p');
+  note.textContent = 'Os nomes salvos ajudam no próximo cadastro. O nome de cada compra anterior permanece no histórico.';
+  dialog.append(note);
+  for (const name of accountPeople()) {
+    const row = document.createElement('div');
+    row.className = 'invoice-row';
+    const label = document.createElement('span');
+    label.textContent = name;
+    const edit = document.createElement('button');
+    edit.type = 'button'; edit.className = 'btn-edit-row'; edit.textContent = 'Renomear';
+    edit.onclick = () => {
+      const next = prompt('Novo nome para próximos gastos', name)?.trim().slice(0, 80);
+      if (!next || next.toLowerCase() === 'meu') return;
+      appState.people = appState.people.filter(person => person !== name);
+      rememberAccountPerson(next);
+      saveToStorage(); dialog.close(); renderAll(); window.manageAccountPeople();
+    };
+    row.append(label, edit); dialog.append(row);
+  }
+  const add = document.createElement('button');
+  add.type = 'button'; add.className = 'btn-pastel'; add.textContent = '+ Adicionar pessoa';
+  add.onclick = () => {
+    const name = prompt('Nome da pessoa');
+    if (!name?.trim()) return;
+    rememberAccountPerson(name); saveToStorage(); dialog.close(); window.manageAccountPeople();
   };
+  const close = document.createElement('button');
+  close.type = 'button'; close.className = 'btn-pastel'; close.textContent = 'Fechar';
+  close.onclick = () => dialog.close();
+  dialog.append(add, close);
+  dialog.addEventListener('close', () => dialog.remove(), { once: true });
+  document.body.append(dialog); dialog.showModal();
+}
+
+function calculateCardTotals(monthName = appState.currentMonth) {
+  const byCard = Object.create(null);
+  const debtors = Object.create(null);
+  let totalFaturas = 0, totalDebtors = 0, totalMeu = 0;
+  for (const key of accountCardKeys()) {
+    const card = appState.data[monthName]?.cartoes?.[key] || { items: [], parcelasAnteriores: 0 };
+    const installments = calculateCardInstallments(monthName, key);
+    let gastoMes = 0, cardDebtors = 0;
+    for (const item of card.items) {
+      const value = Number(item.valor) || 0;
+      gastoMes += value;
+      const person = getItemDebtor(item);
+      if (!person) continue;
+      const personKey = person.toLowerCase();
+      if (!debtors[personKey]) debtors[personKey] = { name: person, mp: 0, nu: 0, total: 0, cards: Object.create(null) };
+      debtors[personKey].cards[key] = (debtors[personKey].cards[key] || 0) + value;
+      if (key === 'mercadopago') debtors[personKey].mp += value;
+      if (key === 'nubank') debtors[personKey].nu += value;
+      debtors[personKey].total += value;
+      cardDebtors += value;
+    }
+    const manual = Number(card.parcelasAnteriores) || 0;
+    const faturaFinal = manual + gastoMes + installments.carried / 100;
+    byCard[key] = { parcelasAnteriores: manual + (installments.first + installments.carried) / 100,
+      gastoMes, marcos: cardDebtors, totalDebtors: cardDebtors, meu: gastoMes - cardDebtors, faturaFinal, installments };
+    totalFaturas += faturaFinal;
+    totalDebtors += cardDebtors;
+    totalMeu += gastoMes - cardDebtors;
+  }
+  const empty = { parcelasAnteriores: 0, gastoMes: 0, marcos: 0, totalDebtors: 0, meu: 0, faturaFinal: 0, installments: { first: 0, carried: 0 } };
+  return { byCard, mp: byCard.mercadopago || empty, nu: byCard.nubank || empty,
+    totalFaturas, totalDebtors, totalMeu, totalMarcos: debtors.marcos?.total || 0, debtors };
 }
 
 function syncCardInvoice(month, reference, dueDay, total) {
@@ -678,8 +765,7 @@ function syncCardPurchaseMonths(spendMonth, cardKey, previousCount, currentCount
     const payMonth = getNextMonthName(month);
     if (!payMonth) continue;
     const totals = calculateCardTotals(month);
-    if (cardKey === 'nubank') syncCardInvoice(appState.data[payMonth], 'fatura nubank', '13', totals.nu);
-    else syncCardInvoice(appState.data[payMonth], 'fatura mercado pago', '6', totals.mp);
+    syncAccountCardInvoice(appState.data[payMonth], cardKey, totals.byCard[cardKey]);
   }
 }
 
@@ -706,8 +792,7 @@ function syncCreditCardsToNextMonth(spendMonth = appState.currentMonth) {
   const totals = calculateCardTotals(spendMonth);
   const nextMonthObj = appState.data[payMonth];
 
-  syncCardInvoice(nextMonthObj, 'fatura mercado pago', '6', totals.mp);
-  syncCardInvoice(nextMonthObj, 'fatura nubank', '13', totals.nu);
+  for (const key of accountCardKeys()) syncAccountCardInvoice(nextMonthObj, key, totals.byCard[key]);
 
   // 3. Atualiza Entradas de quem deve no mês seguinte (Marcos, Isa, Kauã, Alguém, etc.) sem sobrescrever entradas manuais do usuário
   const activeDebtorKeys = new Set();
@@ -772,6 +857,7 @@ window.setCardItemDebtor = function(cardKey, itemId, newDebtorName) {
   if (!item) return;
 
   const cleaned = (newDebtorName || '').trim();
+  if (cleaned && cleaned.toLowerCase() !== 'meu') rememberAccountPerson(cleaned);
   if (!cleaned || cleaned.toLowerCase() === 'meu' || cleaned.toLowerCase() === 'nenhum') {
     item.devedor = null;
     item.isMarcos = false;
@@ -813,8 +899,8 @@ window.openDebtorPopover = function(ev, cardKey, itemId) {
 
   // Coleta nomes já usados nos cartões do mês + Marcos
   const namesMap = new Map();
-  namesMap.set('marcos', 'Marcos');
-  ['mercadopago', 'nubank'].forEach(ck => {
+  for (const name of accountPeople()) namesMap.set(name.toLowerCase(), name);
+  accountCardKeys().forEach(ck => {
     (monthObj.cartoes?.[ck]?.items || []).forEach(it => {
       const d = getItemDebtor(it);
       if (d) namesMap.set(d.toLowerCase(), d);
@@ -922,7 +1008,7 @@ window.openCardTitlePopover = function(ev, cardKey, itemId) {
 
   const currentCat = (item.titulo || 'compras').toLowerCase().trim();
   const cats = new Set(['compras', 'contas', 'uber', 'parcelado']);
-  ['mercadopago', 'nubank'].forEach(ck => {
+  accountCardKeys().forEach(ck => {
     (monthObj.cartoes?.[ck]?.items || []).forEach(it => {
       if (it.titulo) cats.add(it.titulo.toLowerCase().trim());
     });
@@ -1712,7 +1798,7 @@ function renderPlanilhaTab(monthObj, fin, highlightId) {
   tbodyEntradas.innerHTML = '';
 
   monthObj.entradas.forEach((item) => {
-    const isDebtorSync = Boolean(item.isCardSync || item.referencia.toLowerCase().trim() === 'marcos');
+    const isDebtorSync = Boolean(item.isCardSync);
     const badgeMarcos = isDebtorSync
       ? `<span class="cat-tag cat-compras" style="margin-left:6px;font-size:0.68rem;" title="Sincronizado automaticamente dos cartões do mês anterior">💳 Cartões</span>`
       : '';
@@ -1946,7 +2032,7 @@ function updateCardFilterUI(monthObj) {
 
   // Coleta todas as categorias presentes nos cartões deste mês
   const cats = new Set(['compras', 'contas', 'parcelado', 'uber']);
-  ['mercadopago', 'nubank'].forEach(ck => {
+  accountCardKeys().forEach(ck => {
     (monthObj.cartoes?.[ck]?.items || []).forEach(i => {
       if (i.titulo) cats.add(i.titulo.toLowerCase().trim());
     });
@@ -1990,8 +2076,8 @@ function updateCardFilterUI(monthObj) {
     marcosChips.innerHTML = '';
 
     const debtorsFound = new Map();
-    debtorsFound.set('marcos', 'Marcos');
-    const allCardItems = [...(monthObj.cartoes?.mercadopago?.items || []), ...(monthObj.cartoes?.nubank?.items || [])];
+    for (const name of accountPeople()) debtorsFound.set(name.toLowerCase(), name);
+    const allCardItems = Object.values(monthObj.cartoes || {}).flatMap(card => card.items);
     allCardItems.forEach(i => {
       const d = getItemDebtor(i);
       if (d) {
@@ -2066,8 +2152,7 @@ function buildCardDebtorButtonsHtml(cardKey, item) {
   const itemDebtor = getItemDebtor(item);
   const itemDebtorKey = itemDebtor ? itemDebtor.toLowerCase() : null;
   const isMeu = !itemDebtor;
-  const isMarcos = itemDebtorKey === 'marcos';
-  const activeClass = isMeu ? 'active-meu' : (isMarcos ? 'active-marcos' : 'active-other');
+  const activeClass = isMeu ? 'active-meu' : 'active-other';
   const displayName = itemDebtor || 'Meu';
 
   return `
@@ -2106,137 +2191,96 @@ function renderCardDebtorsFooter(containerId, fallbackStrongId, cardKey, totals)
 }
 
 function renderCartoesTab(monthObj, highlightId) {
-  const nextM = getNextMonthName(appState.currentMonth) || 'MÊS SEGUINTE';
-  document.getElementById('lblCardSpendMonth').textContent = getMonthLabel(appState.currentMonth);
-  document.getElementById('lblCardPayMonth').textContent = getMonthLabel(nextM);
-  document.querySelectorAll('.lblCardPayMonthText').forEach(el => { el.textContent = getMonthLabel(nextM); });
-
   const totals = calculateCardTotals(appState.currentMonth);
-
+  const next = getNextMonthName(appState.currentMonth);
+  document.getElementById('lblCardSpendMonth').textContent = getMonthLabel(appState.currentMonth);
+  document.getElementById('lblCardPayMonth').textContent = next ? getMonthLabel(next) : 'MÊS SEGUINTE';
+  document.querySelectorAll('.lblCardPayMonthText').forEach(node => { node.textContent = next ? getMonthLabel(next) : 'MÊS SEGUINTE'; });
   document.getElementById('cardBannerTotalFaturas').textContent = formatBRL(totals.totalFaturas);
   document.getElementById('cardBannerTotalMarcos').textContent = formatBRL(totals.totalDebtors);
   document.getElementById('cardBannerTotalMeu').textContent = formatBRL(totals.totalMeu);
-
-  const titleEl = document.getElementById('cardBannerDebtorsTitle');
-  if (titleEl) {
-    const dList = Object.values(totals.debtors).map(d => `${d.name}: ${formatBRL(d.total)}`);
-    if (dList.length > 0) {
-      titleEl.textContent = `Total a Cobrar (${dList.join(' | ')})`;
-    } else {
-      titleEl.textContent = `Total a Cobrar (MP + Nubank)`;
-    }
-  }
-
-  // 1. Mercado Pago
-  renderCardInstallmentTotal('mpParcelasAnteriores', 'mpParcelasMes', totals.mp);
-  const tbodyMP = document.getElementById('tbodyCardMP');
-  tbodyMP.innerHTML = '';
-
-  const filterCat = (appState.filterCardCategoria || 'all').toLowerCase().trim();
-  const filterMarcos = (appState.filterCardMarcos || 'all').toLowerCase().trim();
-
+  document.getElementById('cardBannerDebtorsTitle').textContent = 'Total a cobrar';
   updateCardFilterUI(monthObj);
-
-  let mpFilteredCount = 0;
-  monthObj.cartoes.mercadopago.items.forEach(item => {
-    const itemCat = (item.titulo || 'compras').toLowerCase().trim();
-    const itemDebtor = getItemDebtor(item);
-    const itemDebtorKey = itemDebtor ? itemDebtor.toLowerCase() : null;
-
-    if (filterCat !== 'all' && itemCat !== filterCat) return;
-    if (filterMarcos === 'meu' && itemDebtor) return;
-    if (filterMarcos !== 'all' && filterMarcos !== 'meu' && itemDebtorKey !== filterMarcos) return;
-
-    mpFilteredCount++;
-    const tr = document.createElement('tr');
-    tr.setAttribute('data-row-id', item.id);
-    if (itemDebtor) tr.classList.add('row-is-marcos');
-    if (item.id === highlightId) tr.classList.add('luna-spotlight-3s');
-
-    tr.innerHTML = `
-      <td class="text-center editable-cell" onclick="editCardItemInline('mercadopago', '${item.id}', 'data')">${escapeHtml(item.data)}</td>
-      <td class="editable-cell" onclick="editCardItemInline('mercadopago', '${item.id}', 'referencia')">${escapeHtml(item.referencia)}${parseInstallmentRef(item.referencia) ? '<span title="Parcela sincronizada automaticamente entre os meses" style="font-size:0.75rem;margin-left:5px;">🔗</span>' : ''}</td>
-      <td class="editable-cell" onclick="editCardItemInline('mercadopago', '${item.id}', 'titulo', event)" title="Clique para alterar o título">
-        <span class="cat-tag ${getCategoryClass(item.titulo)}">${escapeHtml(item.titulo)}</span>
-      </td>
-      <td class="text-center">
-        ${buildCardDebtorButtonsHtml('mercadopago', item)}
-      </td>
-      <td class="text-right editable-cell" onclick="editCardItemInline('mercadopago', '${item.id}', 'valor')">${formatBRL(item.valor)}</td>
-      <td class="col-actions">
-        <button type="button" class="btn-edit-row" onclick="openEditCardModal('mercadopago', '${item.id}')" title="Editar gasto">✎</button>
-        <button type="button" class="btn-delete-row" onclick="deleteCardItem('mercadopago', '${item.id}')" title="Excluir">✕</button>
-      </td>
-    `;
-    tbodyMP.appendChild(tr);
-  });
-
-  if (mpFilteredCount === 0 && monthObj.cartoes.mercadopago.items.length > 0) {
-    const trEmpty = document.createElement('tr');
-    trEmpty.innerHTML = `<td colspan="6" class="text-center" style="padding:16px; color:var(--text-muted); font-size:0.82rem;">Nenhum gasto com este filtro no Mercado Pago. <a href="javascript:void(0)" onclick="clearCardFilters()" style="color:var(--pastel-lavender-deep);font-weight:700;">Ver todos</a></td>`;
-    tbodyMP.appendChild(trEmpty);
+  const host = document.querySelector('#view-cartoes .cards-two-col');
+  host.replaceChildren();
+  for (const key of accountCardKeys()) {
+    const config = appState.cardSettings[key] || {};
+    if (config.archived && !appState.showArchivedCards) continue;
+    const card = monthObj.cartoes[key] || { items: [], parcelasAnteriores: 0 };
+    const total = totals.byCard[key];
+    const panel = document.createElement('div');
+    panel.className = 'card-pastel section-card';
+    panel.dataset.cardId = key;
+    panel.innerHTML = `
+      <div class="card-header header-nubank-purple">
+        <div class="card-title-group"><h2>${escapeHtml(cardDisplayName(key))}${config.archived ? ' · Arquivado' : ''}</h2></div>
+        <div class="account-card-controls"></div>
+      </div>
+      <div class="parcelas-anteriores-bar"><span>Parcelas anteriores ${next ? '(' + getMonthLabel(next) + ')' : ''}</span>
+        <button type="button" class="btn-edit-row account-card-manual" title="Editar somente o valor manual">${formatBRL(total.parcelasAnteriores)}</button></div>
+      <div class="table-wrapper saidas-scroll"><table class="pastel-table"><thead><tr>
+        <th>Dia</th><th>Referência</th><th>Categoria</th><th>Quem deve?</th><th>Valor</th><th></th>
+      </tr></thead><tbody></tbody></table></div>
+      <div class="card-invoice-footer">
+        <div class="invoice-row"><span>Total gasto este mês</span><strong>${formatBRL(total.gastoMes)}</strong></div>
+        <div class="account-card-debtors"></div>
+        <div class="invoice-row"><span>Meu</span><strong>${formatBRL(total.meu)}</strong></div>
+        <div class="invoice-row row-fatura-final"><span>Fatura final a pagar</span><strong>${formatBRL(total.faturaFinal)}</strong></div>
+      </div>`;
+    const button = (label, action) => {
+      const node = document.createElement('button');
+      node.type = 'button'; node.className = 'btn-edit-row'; node.textContent = label; node.onclick = action;
+      return node;
+    };
+    const controls = panel.querySelector('.account-card-controls');
+    if (config.archived) controls.append(button('Restaurar', () => window.restoreAccountCard(key)));
+    else controls.append(button('+ Novo gasto', () => window.openCardModal(key)),
+      button('Renomear', () => window.renameAccountCard(key)), button('Arquivar', () => window.archiveAccountCard(key)));
+    panel.querySelector('.account-card-manual').onclick = () => {
+      ensureAccountCard(key); window.editParcelasAnteriores(key);
+    };
+    const tbody = panel.querySelector('tbody');
+    const category = appState.filterCardCategoria || 'all';
+    const person = appState.filterCardMarcos || 'all';
+    for (const item of card.items) {
+      const debtor = getItemDebtor(item);
+      if (category !== 'all' && (item.titulo || 'compras').toLowerCase() !== category) continue;
+      if (person === 'meu' && debtor) continue;
+      if (!['meu', 'all'].includes(person) && debtor?.toLowerCase() !== person) continue;
+      const row = document.createElement('tr');
+      row.dataset.rowId = item.id;
+      if (item.id === highlightId) row.classList.add('luna-spotlight-3s');
+      for (const field of ['data', 'referencia', 'titulo']) {
+        const cell = document.createElement('td');
+        cell.className = 'editable-cell'; cell.textContent = item[field] || '—';
+        cell.onclick = event => window.editCardItemInline(key, item.id, field, event);
+        row.append(cell);
+      }
+      const debtorCell = document.createElement('td');
+      debtorCell.append(button(debtor || 'Meu', event => window.openDebtorPopover(event, key, item.id)));
+      const amount = document.createElement('td'); amount.className = 'text-right editable-cell';
+      amount.textContent = formatBRL(item.valor); amount.onclick = () => window.editCardItemInline(key, item.id, 'valor');
+      const actions = document.createElement('td');
+      actions.append(button('Editar', () => window.openEditCardModal(key, item.id)), button('✕', () => window.deleteCardItem(key, item.id)));
+      row.append(debtorCell, amount, actions); tbody.append(row);
+    }
+    if (!tbody.children.length) {
+      const row = document.createElement('tr'); const cell = document.createElement('td');
+      cell.colSpan = 6; cell.textContent = 'Nenhum lançamento neste filtro.'; row.append(cell); tbody.append(row);
+    }
+    const footer = panel.querySelector('.account-card-debtors');
+    for (const debtor of Object.values(totals.debtors)) {
+      if (!debtor.cards[key]) continue;
+      const line = document.createElement('div'); line.className = 'invoice-row';
+      const name = document.createElement('span'); name.textContent = debtor.name + ' · a cobrar';
+      const value = document.createElement('strong'); value.textContent = formatBRL(debtor.cards[key]);
+      line.append(name, value); footer.append(line);
+    }
+    host.append(panel);
   }
-
-  document.getElementById('mpTotalMes').textContent = formatBRL(totals.mp.gastoMes);
-  renderCardDebtorsFooter('mpDebtorsFooterList', 'mpTotalMarcos', 'mp', totals);
-  document.getElementById('mpTotalMeu').textContent = formatBRL(totals.mp.meu);
-  document.getElementById('mpFaturaFinal').textContent = formatBRL(totals.mp.faturaFinal);
-
-  // 2. Nubank
-  renderCardInstallmentTotal('nuParcelasAnteriores', 'nuParcelasMes', totals.nu);
-  const tbodyNu = document.getElementById('tbodyCardNubank');
-  tbodyNu.innerHTML = '';
-
-  let nuFilteredCount = 0;
-  monthObj.cartoes.nubank.items.forEach(item => {
-    const itemCat = (item.titulo || 'compras').toLowerCase().trim();
-    const itemDebtor = getItemDebtor(item);
-    const itemDebtorKey = itemDebtor ? itemDebtor.toLowerCase() : null;
-
-    if (filterCat !== 'all' && itemCat !== filterCat) return;
-    if (filterMarcos === 'meu' && itemDebtor) return;
-    if (filterMarcos !== 'all' && filterMarcos !== 'meu' && itemDebtorKey !== filterMarcos) return;
-
-    nuFilteredCount++;
-    const tr = document.createElement('tr');
-    tr.setAttribute('data-row-id', item.id);
-    if (itemDebtor) tr.classList.add('row-is-marcos');
-    if (item.id === highlightId) tr.classList.add('luna-spotlight-3s');
-
-    tr.innerHTML = `
-      <td class="text-center editable-cell" onclick="editCardItemInline('nubank', '${item.id}', 'data')">${escapeHtml(item.data)}</td>
-      <td class="editable-cell" onclick="editCardItemInline('nubank', '${item.id}', 'referencia')">${escapeHtml(item.referencia)}${parseInstallmentRef(item.referencia) ? '<span title="Parcela sincronizada automaticamente entre os meses" style="font-size:0.75rem;margin-left:5px;">🔗</span>' : ''}</td>
-      <td class="editable-cell" onclick="editCardItemInline('nubank', '${item.id}', 'titulo', event)" title="Clique para alterar o título">
-        <span class="cat-tag ${getCategoryClass(item.titulo)}">${escapeHtml(item.titulo)}</span>
-      </td>
-      <td class="text-center">
-        ${buildCardDebtorButtonsHtml('nubank', item)}
-      </td>
-      <td class="text-right editable-cell" onclick="editCardItemInline('nubank', '${item.id}', 'valor')">${formatBRL(item.valor)}</td>
-      <td class="col-actions">
-        <button type="button" class="btn-edit-row" onclick="openEditCardModal('nubank', '${item.id}')" title="Editar gasto">✎</button>
-        <button type="button" class="btn-delete-row" onclick="deleteCardItem('nubank', '${item.id}')" title="Excluir">✕</button>
-      </td>
-    `;
-    tbodyNu.appendChild(tr);
-  });
-
-  if (nuFilteredCount === 0 && monthObj.cartoes.nubank.items.length > 0) {
-    const trEmpty = document.createElement('tr');
-    trEmpty.innerHTML = `<td colspan="6" class="text-center" style="padding:16px; color:var(--text-muted); font-size:0.82rem;">Nenhum gasto com este filtro no Nubank. <a href="javascript:void(0)" onclick="clearCardFilters()" style="color:var(--pastel-lavender-deep);font-weight:700;">Ver todos</a></td>`;
-    tbodyNu.appendChild(trEmpty);
-  }
-
-  document.getElementById('nuTotalMes').textContent = formatBRL(totals.nu.gastoMes);
-  renderCardDebtorsFooter('nuDebtorsFooterList', 'nuTotalMarcos', 'nu', totals);
-  document.getElementById('nuTotalMeu').textContent = formatBRL(totals.nu.meu);
-  document.getElementById('nuFaturaFinal').textContent = formatBRL(totals.nu.faturaFinal);
 }
 
-// =========================================================
-// RENDERIZAR ABA 3: INVESTIMENTOS, RENDIMENTOS & TRAJETÓRIA
-// =========================================================
-// Consulta somente leitura do histórico: os limites incluem os dois dias selecionados.
+
 function investmentHistoryButton() {
   return `<button type="button" class="investment-history-button" aria-label="Ver histórico individual" title="Ver histórico individual">
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 17 6-6 4 4 8-8m-6 0h6v6"/></svg>
@@ -2903,7 +2947,7 @@ function renderPivotTable(saidas, totalSaidas, cartoes) {
   });
 
   // 2. Compras feitas no cartão de crédito neste mês (Mercado Pago + Nubank), sem os gastos de outras pessoas (Marcos, etc.)
-  ['mercadopago', 'nubank'].forEach((cardKey) => {
+  accountCardKeys().forEach((cardKey) => {
     const items = cartoes && cartoes[cardKey] && Array.isArray(cartoes[cardKey].items) ? cartoes[cardKey].items : [];
     items.forEach((item) => {
       if (getItemDebtor(item)) return;
@@ -3498,7 +3542,7 @@ function findMatchingItem(monthObj, searchStr) {
     }
   }
   if (monthObj.cartoes) {
-    for (const cKey of ['mercadopago', 'nubank']) {
+    for (const cKey of accountCardKeys()) {
       const card = monthObj.cartoes[cKey];
       if (card && Array.isArray(card.items)) {
         for (const item of card.items) {
@@ -4607,11 +4651,11 @@ function querySailorSheet(query) {
     if (wanted.has('expenses')) lists.push(['expenses', data.saidas]);
     if (wanted.has('income')) lists.push(['income', data.entradas]);
     if (wanted.has('cards')) {
-      for (const card of ['nubank', 'mercadopago']) lists.push([card, data.cartoes[card].items]);
+      for (const card of accountCardKeys()) lists.push([card, (data.cartoes[card]?.items || [])]);
       const previous = getPreviousMonthName(month);
       if (previous) {
         const cards = calculateCardTotals(previous);
-        rows.push({ section: 'invoice', month: monthDate, nubank: cards.nu, mercadopago: cards.mp,
+        rows.push({ section: 'invoice', month: monthDate, cards: cards.byCard,
           reimbursements: cards.debtors });
       }
     }
@@ -4675,10 +4719,10 @@ function applySailorAction(action, query, today) {
   }
   const edit = type === 'edit' || type === 'delete';
   const section = edit ? action.section : type === 'add_income' ? 'income' : type === 'add_expense' ? 'expenses' : action.card;
-  if (!['expenses', 'income', 'nubank', 'mercadopago'].includes(section)) return { reply: 'Em qual seção devo fazer a alteração?' };
+  if (!['expenses', 'income', ...accountCardKeys()].includes(section)) return { reply: 'Em qual seção devo fazer a alteração?' };
   const month = sailorMonthKey(date);
   const selectList = state => section === 'expenses' ? state.saidas : section === 'income' ? state.entradas : state.cartoes[section].items;
-  const isCard = section === 'nubank' || section === 'mercadopago';
+  const isCard = accountCardKeys().includes(section);
   if (edit) {
     const found = query?.rows.find(row => row.section === section && row.id === action.id && row.month === date.slice(0, 7));
     const state = appState.data[month];
@@ -4722,6 +4766,7 @@ function applySailorAction(action, query, today) {
   if (isCard) {
     item.devedor = typeof action.debtor === 'string' ? action.debtor.trim().slice(0, 80) || null : null;
     item.isMarcos = item.devedor?.toLowerCase() === 'marcos';
+    ensureAccountCard(section);
     setCardPurchaseAmount(item, amount, count);
   }
   selectList(state).push(item);
@@ -4755,6 +4800,8 @@ async function processUserMessage(rawMessage) {
     const today = getTodayLocalISO();
     const context = {
       today,
+      cards: accountCardKeys().map(id => ({ id, name: cardDisplayName(id), archived: Boolean(appState.cardSettings[id]?.archived) })),
+      people: accountPeople(),
       months: MONTH_ORDER.map(getMonthLabel),
       history: appState.chatMemory.filter(entry => ['user', 'assistant'].includes(entry.role)
         && typeof entry.content === 'string').slice(-10).map(entry => ({
@@ -6131,40 +6178,16 @@ function openModal(type) {
 }
 
 window.selectModalDebtorChoice = function(choice) {
-  const chk = document.getElementById('inputIsMarcos');
-  const wrap = document.getElementById('wrapDebtorName');
-  const inp = document.getElementById('inputDebtorName');
-  const container = document.getElementById('modalDebtorChoices');
-
-  if (container) {
-    container.querySelectorAll('.debtor-choice-pill').forEach(btn => {
-      btn.classList.toggle('active', btn.getAttribute('data-choice') === choice);
-    });
-  }
-
-  if (choice === 'meu') {
-    if (chk) chk.checked = false;
-    if (wrap) wrap.style.display = 'none';
-  } else if (choice === 'marcos') {
-    if (chk) chk.checked = true;
-    if (inp) inp.value = 'Marcos';
-    if (wrap) wrap.style.display = 'none';
-  } else {
-    if (chk) chk.checked = true;
-    if (inp && (!inp.value || inp.value.toLowerCase() === 'marcos')) {
-      inp.value = 'Alguém';
-    }
-    if (wrap) wrap.style.display = 'block';
-    setTimeout(() => {
-      if (inp) {
-        inp.focus();
-        inp.select();
-      }
-    }, 20);
-  }
+  const own = choice === 'meu';
+  document.getElementById('inputIsMarcos').checked = !own;
+  document.getElementById('wrapDebtorName').style.display = own ? 'none' : 'block';
+  const input = document.getElementById('inputDebtorName');
+  input.value = own || choice === 'other' ? '' : choice;
+  renderAccountPeopleChoices(choice);
 };
 
 window.openCardModal = function(cardKey) {
+  ensureAccountCard(cardKey);
   const backdrop = document.getElementById('modalBackdrop');
   document.getElementById('modalType').value = `card_${cardKey}`;
   const editIdEl = document.getElementById('modalEditId');
@@ -6180,7 +6203,7 @@ window.openCardModal = function(cardKey) {
   if (lblRef) lblRef.textContent = 'Referência / Descrição';
   if (inpRef) inpRef.placeholder = 'Ex: uber, restaurante, farmácia...';
 
-  const label = cardKey === 'nubank' ? 'Crédito NUBANK' : 'Crédito MERCADO PAGO';
+  const label = cardDisplayName(cardKey);
   document.getElementById('modalTitle').textContent = `Novo Gasto — ${label} (${getMonthLabel(appState.currentMonth)})`;
   document.getElementById('groupDataPagamento').style.display = 'flex';
   document.getElementById('groupTitulo').style.display = 'flex';
@@ -6294,14 +6317,14 @@ window.openEditCardModal = function(cardKey, id) {
   if (item.titulo) document.getElementById('inputTitulo').value = item.titulo;
   document.getElementById('inputCustomTitulo').value = '';
 
-  const debtorChoice = item.isMarcos ? 'marcos' : (item.devedor ? 'outro' : 'meu');
+  const debtorChoice = getItemDebtor(item) || 'meu';
   window.selectModalDebtorChoice(debtorChoice);
-  if (item.devedor && debtorChoice === 'outro') {
+  if (getItemDebtor(item)) {
     const inp = document.getElementById('inputDebtorName');
-    if (inp) inp.value = item.devedor;
+    if (inp) inp.value = getItemDebtor(item);
   }
 
-  const label = cardKey === 'nubank' ? 'Crédito NUBANK' : 'Crédito MERCADO PAGO';
+  const label = cardDisplayName(cardKey);
   document.getElementById('modalTitle').textContent = `Editar Gasto — ${label}`;
   document.getElementById('groupDataPagamento').style.display = 'flex';
   document.getElementById('groupTitulo').style.display = 'flex';
@@ -6805,7 +6828,9 @@ function startMagicApp() {
       if (!Number.isInteger(count) || count < 1 || count > 120) return;
       const isCheckDebtor = document.getElementById('inputIsMarcos').checked;
       const debtorInput = (document.getElementById('inputDebtorName')?.value || '').trim();
-      const debtorName = isCheckDebtor ? (debtorInput || 'Marcos') : null;
+      if (isCheckDebtor && !debtorInput) { document.getElementById('inputDebtorName').focus(); return; }
+      const debtorName = isCheckDebtor ? debtorInput : null;
+      if (debtorName) rememberAccountPerson(debtorName);
       const isMarcos = Boolean(isCheckDebtor && (debtorName.toLowerCase() === 'marcos'));
 
       if (editMeta) {
@@ -6913,12 +6938,7 @@ function startMagicApp() {
 
   // Botão Exportar Backup Completo (.json)
   document.getElementById('btnBackupJSON')?.addEventListener('click', () => {
-    const payload = {
-      version: 'permanente',
-      updatedAt: new Date().toISOString(),
-      data: appState.data,
-      yieldHistory: appState.yieldHistory
-    };
+    const payload = magicSnapshot();
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -6942,6 +6962,8 @@ function startMagicApp() {
         const imported = JSON.parse(ev.target.result);
         if (imported && imported.data) {
           appState.data = mergeSavedDataWithDefaults(imported.data);
+          if (imported.preferences?.cardSettings) appState.cardSettings = structuredClone(imported.preferences.cardSettings);
+          if (Array.isArray(imported.preferences?.people)) appState.people = structuredClone(imported.preferences.people);
           if (Array.isArray(imported.yieldHistory)) appState.yieldHistory = imported.yieldHistory;
           saveToStorage();
           renderAll();
@@ -7105,6 +7127,8 @@ window.MagicApp = {
     appState.chatHistoryLog = structuredClone(payload.chatHistoryLog);
     appState.chatMemory = structuredClone(payload.chatMemory);
     const prefs = payload.preferences || {};
+    appState.cardSettings = structuredClone(prefs.cardSettings || {});
+    appState.people = structuredClone(prefs.people || []);
     if (prefs.currentMonth && appState.data[prefs.currentMonth]) appState.currentMonth = prefs.currentMonth;
     if (['planilha','cartoes','investimentos'].includes(prefs.currentView)) {
       appState.currentView = prefs.currentView;

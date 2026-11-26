@@ -23,7 +23,8 @@ export function validateSnapshot(value) {
         if (item.titulo !== undefined && !text(item.titulo)) throw new Error('Categoria inválida.');
       }
     }
-    for (const card of ['mercadopago', 'nubank']) {
+    for (const card of new Set(['mercadopago', 'nubank', ...Object.keys(month.cartoes || {})])) {
+      if (!/^(mercadopago|nubank|card_[a-z0-9-]+)$/.test(card)) throw new Error('Identificador de cartão inválido.');
       if (!month.cartoes?.[card] || !Array.isArray(month.cartoes[card].items)) throw new Error('Cartão incompleto.');
       money(month.cartoes[card], 'parcelasAnteriores');
       for (const item of month.cartoes[card].items) {
@@ -33,6 +34,17 @@ export function validateSnapshot(value) {
       }
     }
   }
+  if (value.preferences?.cardSettings !== undefined) {
+    const settings = value.preferences.cardSettings;
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('Configurações de cartão inválidas.');
+    for (const [key, card] of Object.entries(settings)) {
+      if (!/^(mercadopago|nubank|card_[a-z0-9-]+)$/.test(key)
+        || !card || !text(card.name) || !card.name.trim()
+        || (card.archived !== undefined && typeof card.archived !== 'boolean')) throw new Error('Nome de cartão inválido.');
+    }
+  }
+  if (value.preferences?.people !== undefined && (!Array.isArray(value.preferences.people)
+    || value.preferences.people.some(name => !text(name) || !name.trim()))) throw new Error('Nome de pessoa inválido.');
   for (const item of value.dailyInvestments) {
     if (!id(item.id) || !text(item.nome)) throw new Error('Investimento inválido.');
     money(item, 'valor');
